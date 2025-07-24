@@ -29,16 +29,36 @@ func NewClient(baseURL string) *Client {
 
 // RequestOptions contains options for Generate requests
 type RequestOptions struct {
-	Model    string    `json:"model"`
-	Prompt   string    `json:"prompt,omitempty"`
-	System   string    `json:"system,omitempty"`
-	Context  []int     `json:"context,omitempty"`
-	Format   string    `json:"format,omitempty"`
-	Raw      bool      `json:"raw,omitempty"`
-	Images   []string  `json:"images,omitempty"`
-	Stream   bool      `json:"stream"`
-	Messages []Message `json:"messages,omitempty"`
-	Options  *Options  `json:"options,omitempty"`
+	Model      string      `json:"model"`
+	Prompt     string      `json:"prompt,omitempty"`
+	System     string      `json:"system,omitempty"`
+	Context    []int       `json:"context,omitempty"`
+	Format     string      `json:"format,omitempty"`
+	Raw        bool        `json:"raw,omitempty"`
+	Images     []string    `json:"images,omitempty"`
+	Stream     bool        `json:"stream"`
+	Messages   []Message   `json:"messages,omitempty"`
+	Options    *Options    `json:"options,omitempty"`
+	Think      bool        `json:"think"`
+	Tools      []ToolParam `json:"tools,omitempty"`
+	ToolChoice string      `json:"tool_choice,omitempty"`
+}
+
+type ToolParam struct {
+	Type     string        `json:"type"`
+	Function *ToolFunction `json:"function,omitempty"`
+}
+
+type ToolFunction struct {
+	Name        string             `json:"name"`
+	Description string             `json:"description"`
+	Parameters  ToolFunctionParams `json:"parameters"`
+}
+
+type ToolFunctionParams struct {
+	Type       string         `json:"type"`
+	Properties map[string]any `json:"properties"`
+	Required   []string       `json:"required"`
 }
 
 // Options contains model parameters
@@ -51,9 +71,23 @@ type Options struct {
 
 // Message represents a chat message
 type Message struct {
-	Role    string   `json:"role"`
-	Content string   `json:"content,omitempty"`
-	Images  []string `json:"images,omitempty"`
+	Role             string     `json:"role"`
+	Content          string     `json:"content,omitempty"`
+	Thinking         string     `json:"thinking,omitempty"`
+	ReasoningContent string     `json:"reasoning_content,omitempty"`
+	Images           []string   `json:"images,omitempty"`
+	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
+}
+
+type ToolCall struct {
+	Function ToolCallFunction `json:"function"`
+	Type     string           `json:"type"`
+	ID       string           `json:"id"`
+}
+
+type ToolCallFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
 }
 
 // GenerateResponse represents a response from the Ollama API generate endpoint
@@ -78,6 +112,19 @@ type ResponseMessage struct {
 	CreatedAt string  `json:"created_at"`
 	Done      bool    `json:"done"`
 	Error     string  `json:"error,omitempty"`
+}
+
+type ResponseMessageGenerate struct {
+	Model     string      `json:"model"`
+	Choices   []GenChoice `json:"choices"`
+	CreatedAt string      `json:"created_at"`
+	Done      bool        `json:"done"`
+	Error     string      `json:"error,omitempty"`
+}
+
+type GenChoice struct {
+	Index   int     `json:"index"`
+	Message Message `json:"message"`
 }
 
 // Generate sends a completion request to the Ollama API
@@ -139,6 +186,30 @@ func (c *Client) Chat(opts RequestOptions) (*ResponseMessage, error) {
 
 	// Handle regular response
 	return c.handleChatResponse(resp)
+}
+
+// Chat sends a chat completion request to the Ollama API
+func (c *Client) ChatCompletion(opts RequestOptions) (*ResponseMessageGenerate, error) {
+	// Set up request
+	resp, err := c.prepareRequest(opts, "/chat/completions")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	// Handle streaming if requested
+	if opts.Stream {
+		return nil, fmt.Errorf("not doing streaming")
+	}
+
+	// Handle regular response
+	decoder := json.NewDecoder(resp.Body)
+	var response ResponseMessageGenerate
+	if err := decoder.Decode(&response); err != nil {
+		return nil, fmt.Errorf("error decoding response: %w", err)
+	}
+
+	return &response, nil
 }
 
 func (c *Client) handleChatResponse(resp *http.Response) (*ResponseMessage, error) {
