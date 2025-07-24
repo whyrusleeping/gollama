@@ -107,11 +107,15 @@ type GenerateResponse struct {
 
 // ResponseMessage represents a response from the Ollama API chat endpoint
 type ResponseMessage struct {
-	Model     string  `json:"model"`
-	Message   Message `json:"message"`
-	CreatedAt string  `json:"created_at"`
-	Done      bool    `json:"done"`
-	Error     string  `json:"error,omitempty"`
+	Model              string  `json:"model"`
+	Message            Message `json:"message"`
+	CreatedAt          string  `json:"created_at"`
+	Done               bool    `json:"done"`
+	Error              string  `json:"error,omitempty"`
+	PromptEvalCount    int     `json:"prompt_eval_count"`
+	PromptEvalDuration int64   `json:"prompt_eval_duration,omitempty"`
+	EvalDuration       int64   `json:"eval_duration,omitempty"`
+	EvalCount          int     `json:"eval_count,omitempty"`
 }
 
 type ResponseMessageGenerate struct {
