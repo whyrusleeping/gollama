@@ -15,6 +15,7 @@ import (
 type Client struct {
 	baseURL    string
 	httpClient *http.Client
+	headers    map[string]string
 }
 
 // NewClient creates a new Ollama client
@@ -24,7 +25,16 @@ func NewClient(baseURL string) *Client {
 		httpClient: &http.Client{
 			Timeout: 120 * time.Second,
 		},
+		headers: make(map[string]string),
 	}
+}
+
+func (c *Client) SetApiKey(k string) {
+	c.SetHeader("x-api-key", k)
+}
+
+func (c *Client) SetHeader(k, v string) {
+	c.headers[k] = v
 }
 
 // RequestOptions contains options for Generate requests
@@ -77,6 +87,58 @@ type Message struct {
 	ReasoningContent string     `json:"reasoning_content,omitempty"`
 	Images           []string   `json:"images,omitempty"`
 	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID       string     `json:"tool_call_id,omitempty"`
+}
+
+// MarshalJSON implements custom JSON marshaling for OpenAI ChatCompletion format
+func (m Message) MarshalJSON() ([]byte, error) {
+	type MessageAlias Message
+
+	// If no images, use standard marshaling
+	if len(m.Images) == 0 {
+		alias := MessageAlias(m)
+		return json.Marshal(alias)
+	}
+
+	// Create OpenAI-compatible content structure with images
+	content := []map[string]interface{}{
+		{
+			"type": "text",
+			"text": m.Content,
+		},
+	}
+
+	// Add images in OpenAI format
+	for _, img := range m.Images {
+		content = append(content, map[string]interface{}{
+			"type": "image_url",
+			"image_url": map[string]string{
+				"url": fmt.Sprintf("data:image/jpeg;base64,%s", img),
+			},
+		})
+	}
+
+	// Create the final message structure
+	result := map[string]interface{}{
+		"role":    m.Role,
+		"content": content,
+	}
+
+	// Add optional fields if present
+	if m.Thinking != "" {
+		result["thinking"] = m.Thinking
+	}
+	if m.ReasoningContent != "" {
+		result["reasoning_content"] = m.ReasoningContent
+	}
+	if len(m.ToolCalls) > 0 {
+		result["tool_calls"] = m.ToolCalls
+	}
+	if m.ToolCallID != "" {
+		result["tool_call_id"] = m.ToolCallID
+	}
+
+	return json.Marshal(result)
 }
 
 type ToolCall struct {
@@ -192,6 +254,33 @@ func (c *Client) Chat(opts RequestOptions) (*ResponseMessage, error) {
 	return c.handleChatResponse(resp)
 }
 
+type ModelDesc struct {
+	ID     string `json:"id"`
+	Object string `json:"object"`
+	Root   string `json:"root"`
+}
+
+type listModelsResponse struct {
+	Object string      `json:"object"`
+	Data   []ModelDesc `json:"data"`
+}
+
+func (c *Client) ListModels() ([]ModelDesc, error) {
+	resp, err := c.prepareGet("/models")
+	if err != nil {
+		return nil, err
+	}
+
+	defer resp.Body.Close()
+
+	var out listModelsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+
+	return out.Data, nil
+}
+
 // Chat sends a chat completion request to the Ollama API
 func (c *Client) ChatCompletion(opts RequestOptions) (*ResponseMessageGenerate, error) {
 	// Set up request
@@ -230,8 +319,8 @@ func (c *Client) handleChatStream(resp *http.Response) (*ResponseMessage, error)
 	return nil, fmt.Errorf("not dealing with streams yet")
 }
 
-func (c *Client) prepareRequest(opts RequestOptions, endpoint string) (*http.Response, error) {
-	data, err := json.Marshal(opts)
+func (c *Client) prepareRequest(body any, endpoint string) (*http.Response, error) {
+	data, err := json.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling request: %w", err)
 	}
@@ -242,6 +331,33 @@ func (c *Client) prepareRequest(opts RequestOptions, endpoint string) (*http.Res
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	for k, v := range c.headers {
+		req.Header.Set(k, v)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("error sending request: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		return nil, fmt.Errorf("API returned non-200 status code %d: %s", resp.StatusCode, string(bodyBytes))
+	}
+
+	return resp, nil
+}
+
+func (c *Client) prepareGet(endpoint string) (*http.Response, error) {
+	req, err := http.NewRequest("GET", fmt.Sprintf("%s%s", c.baseURL, endpoint), nil)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+
+	for k, v := range c.headers {
+		req.Header.Set(k, v)
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
