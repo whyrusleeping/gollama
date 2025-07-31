@@ -82,7 +82,7 @@ type Options struct {
 // Message represents a chat message
 type Message struct {
 	Role             string     `json:"role"`
-	Content          string     `json:"content,omitempty"`
+	Content          string     `json:"content"`
 	Thinking         string     `json:"thinking,omitempty"`
 	ReasoningContent string     `json:"reasoning_content,omitempty"`
 	Images           []string   `json:"images,omitempty"`
@@ -186,7 +186,32 @@ type ResponseMessageGenerate struct {
 	CreatedAt string      `json:"created_at"`
 	Done      bool        `json:"done"`
 	Error     string      `json:"error,omitempty"`
+	Usage     Usage       `json:"usage"`
 }
+
+type Usage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+}
+
+/*
+"usage": {
+    "prompt_tokens": 19,
+    "completion_tokens": 10,
+    "total_tokens": 29,
+    "prompt_tokens_details": {
+      "cached_tokens": 0,
+      "audio_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 0,
+      "audio_tokens": 0,
+      "accepted_prediction_tokens": 0,
+      "rejected_prediction_tokens": 0
+    }
+  },
+*/
 
 type GenChoice struct {
 	Index   int     `json:"index"`
