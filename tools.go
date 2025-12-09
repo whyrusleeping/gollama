@@ -1,5 +1,11 @@
 package gollama
 
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+)
+
 // ToolParam represents a tool parameter in API requests.
 // Used to define available tools/functions that the model can call.
 type ToolParam struct {
@@ -35,4 +41,26 @@ type ToolCall struct {
 type ToolCallFunction struct {
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`
+}
+
+// HandleToolCall finds and executes a tool by name from the given tool list.
+// Returns the tool's response string or an error.
+func HandleToolCall(ctx context.Context, tools []*Tool, call ToolCall) (string, error) {
+	var tool *Tool
+	for _, t := range tools {
+		if t.Name == call.Function.Name {
+			tool = t
+			break
+		}
+	}
+	if tool == nil {
+		return "", fmt.Errorf("no such tool %q", call.Function.Name)
+	}
+
+	var params map[string]any
+	if err := json.Unmarshal([]byte(call.Function.Arguments), &params); err != nil {
+		return "", fmt.Errorf("invalid tool arguments: %w", err)
+	}
+
+	return tool.Call(ctx, params)
 }
