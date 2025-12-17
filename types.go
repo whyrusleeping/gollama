@@ -39,10 +39,13 @@ type Message struct {
 	Images           []string   `json:"images,omitempty"`
 	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID       string     `json:"tool_call_id,omitempty"`
+	// UseAnthropicFormat uses Anthropic's native image format instead of OpenAI format.
+	// Set to true when using Anthropic's /v1/messages or batch API directly.
+	UseAnthropicFormat bool `json:"-"`
 }
 
 // MarshalJSON implements custom JSON marshaling supporting both OpenAI and Anthropic formats.
-// When images are present, it uses Anthropic's structured content format which is more universal.
+// When images are present, it uses OpenAI format by default, or Anthropic format if UseAnthropicFormat is true.
 func (m Message) MarshalJSON() ([]byte, error) {
 	type MessageAlias Message
 
@@ -53,8 +56,6 @@ func (m Message) MarshalJSON() ([]byte, error) {
 	}
 
 	// Create content structure with images
-	// Use Anthropic format (type: "image") which is more universal
-	// OpenAI endpoints will handle this, but Anthropic batch API requires it
 	content := []map[string]interface{}{
 		{
 			"type": "text",
@@ -62,16 +63,27 @@ func (m Message) MarshalJSON() ([]byte, error) {
 		},
 	}
 
-	// Add images in Anthropic format
+	// Add images in the appropriate format
 	for _, img := range m.Images {
-		content = append(content, map[string]interface{}{
-			"type": "image",
-			"source": map[string]string{
-				"type":       "base64",
-				"media_type": "image/jpeg",
-				"data":       img,
-			},
-		})
+		if m.UseAnthropicFormat {
+			// Anthropic format for /v1/messages and batch API
+			content = append(content, map[string]interface{}{
+				"type": "image",
+				"source": map[string]string{
+					"type":       "base64",
+					"media_type": "image/jpeg",
+					"data":       img,
+				},
+			})
+		} else {
+			// OpenAI format for /chat/completions endpoint
+			content = append(content, map[string]interface{}{
+				"type": "image_url",
+				"image_url": map[string]string{
+					"url": "data:image/jpeg;base64," + img,
+				},
+			})
+		}
 	}
 
 	// Create the final message structure
