@@ -162,16 +162,33 @@ type GenChoice struct {
 }
 
 // Usage represents token usage information in API responses.
+// Supports both OpenAI format (prompt_tokens_details) and Anthropic format (cache_* fields).
 type Usage struct {
 	PromptTokens        int                  `json:"prompt_tokens"`
 	CompletionTokens    int                  `json:"completion_tokens"`
 	TotalTokens         int                  `json:"total_tokens"`
 	PromptTokensDetails *PromptTokensDetails `json:"prompt_tokens_details"`
+	// Anthropic-specific cache fields
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens,omitempty"`
 }
 
 // PromptTokensDetails provides detailed information about prompt token usage.
 type PromptTokensDetails struct {
 	CachedTokens int `json:"cached_tokens"`
+}
+
+// GetCachedTokens returns the number of cached tokens, checking both OpenAI and Anthropic formats.
+func (u Usage) GetCachedTokens() int {
+	// Check Anthropic format first (cache_read_input_tokens)
+	if u.CacheReadInputTokens > 0 {
+		return u.CacheReadInputTokens
+	}
+	// Fall back to OpenAI format
+	if u.PromptTokensDetails != nil {
+		return u.PromptTokensDetails.CachedTokens
+	}
+	return 0
 }
 
 // ModelDesc represents a model description from the OpenAI-compatible /models endpoint.

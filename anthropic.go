@@ -1,0 +1,286 @@
+package gollama
+
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+)
+
+// Anthropic native API types
+
+type anthropicRequest struct {
+	Model     string                   `json:"model"`
+	MaxTokens int                      `json:"max_tokens"`
+	System    []anthropicSystemBlock   `json:"system,omitempty"`
+	Messages  []anthropicMessage       `json:"messages"`
+	Tools     []anthropicTool          `json:"tools,omitempty"`
+}
+
+type anthropicSystemBlock struct {
+	Type         string                 `json:"type"`
+	Text         string                 `json:"text"`
+	CacheControl *anthropicCacheControl `json:"cache_control,omitempty"`
+}
+
+type anthropicCacheControl struct {
+	Type string `json:"type"` // "ephemeral"
+}
+
+type anthropicMessage struct {
+	Role    string        `json:"role"`
+	Content []interface{} `json:"content"`
+}
+
+type anthropicTextBlock struct {
+	Type         string                 `json:"type"`
+	Text         string                 `json:"text"`
+	CacheControl *anthropicCacheControl `json:"cache_control,omitempty"`
+}
+
+type anthropicToolUseBlock struct {
+	Type  string `json:"type"`
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Input any    `json:"input"`
+}
+
+type anthropicToolResultBlock struct {
+	Type      string `json:"type"`
+	ToolUseID string `json:"tool_use_id"`
+	Content   string `json:"content"`
+}
+
+type anthropicImageBlock struct {
+	Type   string               `json:"type"`
+	Source anthropicImageSource `json:"source"`
+}
+
+type anthropicImageSource struct {
+	Type      string `json:"type"`
+	MediaType string `json:"media_type"`
+	Data      string `json:"data"`
+}
+
+type anthropicTool struct {
+	Name         string                 `json:"name"`
+	Description  string                 `json:"description"`
+	InputSchema  any                    `json:"input_schema"`
+	CacheControl *anthropicCacheControl `json:"cache_control,omitempty"`
+}
+
+type anthropicResponse struct {
+	ID           string                 `json:"id"`
+	Type         string                 `json:"type"`
+	Role         string                 `json:"role"`
+	Content      []anthropicContentBlock `json:"content"`
+	Model        string                 `json:"model"`
+	StopReason   string                 `json:"stop_reason"`
+	StopSequence *string                `json:"stop_sequence"`
+	Usage        anthropicUsage         `json:"usage"`
+}
+
+type anthropicContentBlock struct {
+	Type  string `json:"type"`
+	Text  string `json:"text,omitempty"`
+	ID    string `json:"id,omitempty"`
+	Name  string `json:"name,omitempty"`
+	Input any    `json:"input,omitempty"`
+}
+
+type anthropicUsage struct {
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+}
+
+// ChatCompletionAnthropic sends a request using Anthropic's native API format with caching support.
+// The system prompt and the last user message before each assistant turn are marked for caching.
+func (c *Client) ChatCompletionAnthropic(opts RequestOptions) (*ResponseMessageGenerate, error) {
+	// Build Anthropic request
+	req := anthropicRequest{
+		Model:     opts.Model,
+		MaxTokens: 8192, // Default max tokens
+	}
+
+	if opts.Options != nil && opts.Options.MaxTokens > 0 {
+		req.MaxTokens = opts.Options.MaxTokens
+	}
+
+	// Convert system prompt to Anthropic format with caching
+	if opts.System != "" {
+		req.System = []anthropicSystemBlock{
+			{
+				Type:         "text",
+				Text:         opts.System,
+				CacheControl: &anthropicCacheControl{Type: "ephemeral"},
+			},
+		}
+	}
+
+	// Find system message in messages array (first message if role is "system")
+	startIdx := 0
+	if len(opts.Messages) > 0 && opts.Messages[0].Role == "system" {
+		req.System = []anthropicSystemBlock{
+			{
+				Type:         "text",
+				Text:         opts.Messages[0].Content,
+				CacheControl: &anthropicCacheControl{Type: "ephemeral"},
+			},
+		}
+		startIdx = 1
+	}
+
+	// Convert tools with caching on last tool
+	if len(opts.Tools) > 0 {
+		for i, t := range opts.Tools {
+			tool := anthropicTool{
+				Name:        t.Function.Name,
+				Description: t.Function.Description,
+				InputSchema: t.Function.Parameters,
+			}
+			// Cache the last tool (caches all tools as a prefix)
+			if i == len(opts.Tools)-1 {
+				tool.CacheControl = &anthropicCacheControl{Type: "ephemeral"}
+			}
+			req.Tools = append(req.Tools, tool)
+		}
+	}
+
+	// Convert messages to Anthropic format
+	// Strategy: only cache the LAST user message (Anthropic allows max 4 cache breakpoints)
+	// The system prompt and tools are cached above, so we use 1 more for conversation
+	for i := startIdx; i < len(opts.Messages); i++ {
+		msg := opts.Messages[i]
+
+		antMsg := anthropicMessage{
+			Role: msg.Role,
+		}
+
+		if msg.Role == "tool" {
+			// Tool result
+			antMsg.Role = "user"
+			antMsg.Content = []interface{}{
+				anthropicToolResultBlock{
+					Type:      "tool_result",
+					ToolUseID: msg.ToolCallID,
+					Content:   msg.Content,
+				},
+			}
+		} else if msg.Role == "assistant" {
+			// Assistant message - may have text and/or tool calls
+			if msg.Content != "" {
+				antMsg.Content = append(antMsg.Content, anthropicTextBlock{
+					Type: "text",
+					Text: msg.Content,
+				})
+			}
+			for _, tc := range msg.ToolCalls {
+				var input any
+				json.Unmarshal([]byte(tc.Function.Arguments), &input)
+				antMsg.Content = append(antMsg.Content, anthropicToolUseBlock{
+					Type:  "tool_use",
+					ID:    tc.ID,
+					Name:  tc.Function.Name,
+					Input: input,
+				})
+			}
+		} else {
+			// User message - only cache the very last one
+			isLastMessage := i == len(opts.Messages)-1
+
+			// Handle images
+			for _, img := range msg.Images {
+				antMsg.Content = append(antMsg.Content, anthropicImageBlock{
+					Type: "image",
+					Source: anthropicImageSource{
+						Type:      "base64",
+						MediaType: "image/jpeg",
+						Data:      img,
+					},
+				})
+			}
+
+			// Add text content
+			textBlock := anthropicTextBlock{
+				Type: "text",
+				Text: msg.Content,
+			}
+			if isLastMessage {
+				textBlock.CacheControl = &anthropicCacheControl{Type: "ephemeral"}
+			}
+			antMsg.Content = append(antMsg.Content, textBlock)
+		}
+
+		req.Messages = append(req.Messages, antMsg)
+	}
+
+	// Send request to Anthropic's native endpoint
+	// Note: if baseURL already ends with /v1, we just use /messages
+	endpoint := "/v1/messages"
+	if strings.HasSuffix(c.baseURL, "/v1") {
+		endpoint = "/messages"
+	}
+
+	resp, err := c.prepareRequest(req, endpoint)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	// Parse Anthropic response
+	var antResp anthropicResponse
+	if err := json.NewDecoder(resp.Body).Decode(&antResp); err != nil {
+		return nil, fmt.Errorf("error decoding Anthropic response: %w", err)
+	}
+
+	// Convert to standard response format
+	result := &ResponseMessageGenerate{
+		Model: antResp.Model,
+		Usage: Usage{
+			PromptTokens:             antResp.Usage.InputTokens,
+			CompletionTokens:         antResp.Usage.OutputTokens,
+			TotalTokens:              antResp.Usage.InputTokens + antResp.Usage.OutputTokens,
+			CacheCreationInputTokens: antResp.Usage.CacheCreationInputTokens,
+			CacheReadInputTokens:     antResp.Usage.CacheReadInputTokens,
+		},
+		Choices: []GenChoice{
+			{
+				Index: 0,
+				Message: Message{
+					Role: antResp.Role,
+				},
+			},
+		},
+	}
+
+	// Convert content blocks
+	var toolCalls []ToolCall
+	var textContent strings.Builder
+	for _, block := range antResp.Content {
+		switch block.Type {
+		case "text":
+			textContent.WriteString(block.Text)
+		case "tool_use":
+			inputJSON, _ := json.Marshal(block.Input)
+			toolCalls = append(toolCalls, ToolCall{
+				ID:   block.ID,
+				Type: "function",
+				Function: ToolCallFunction{
+					Name:      block.Name,
+					Arguments: string(inputJSON),
+				},
+			})
+		}
+	}
+
+	result.Choices[0].Message.Content = textContent.String()
+	result.Choices[0].Message.ToolCalls = toolCalls
+
+	return result, nil
+}
+
+// IsAnthropicAPI checks if the client is configured to use Anthropic's API
+func (c *Client) IsAnthropicAPI() bool {
+	return strings.Contains(c.baseURL, "anthropic.com")
+}

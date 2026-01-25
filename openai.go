@@ -22,11 +22,17 @@ func (c *Client) ListModels() ([]ModelDesc, error) {
 	return out.Data, nil
 }
 
-// ChatCompletion sends a chat completion request to the OpenAI-compatible /chat/completions endpoint.
+// ChatCompletion sends a chat completion request.
+// If connected to Anthropic's API, uses the native /v1/messages endpoint with caching.
+// Otherwise, uses the OpenAI-compatible /chat/completions endpoint.
 // Returns a ResponseMessageGenerate with choices and usage information.
-// TODO: Streaming not yet supported
 func (c *Client) ChatCompletion(opts RequestOptions) (*ResponseMessageGenerate, error) {
-	// Set up request
+	// Use native Anthropic API for caching support
+	if c.IsAnthropicAPI() {
+		return c.ChatCompletionAnthropic(opts)
+	}
+
+	// Set up request for OpenAI-compatible endpoint
 	resp, err := c.prepareRequest(opts, "/chat/completions")
 	if err != nil {
 		return nil, err
