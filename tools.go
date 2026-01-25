@@ -44,8 +44,8 @@ type ToolCallFunction struct {
 }
 
 // HandleToolCall finds and executes a tool by name from the given tool list.
-// Returns the tool's response string or an error.
-func HandleToolCall(ctx context.Context, tools []*Tool, call ToolCall) (string, error) {
+// Returns the tool's response or an error.
+func HandleToolCall(ctx context.Context, tools []*Tool, call ToolCall) (*ToolResult, error) {
 	var tool *Tool
 	for _, t := range tools {
 		if t.Name == call.Function.Name {
@@ -54,12 +54,12 @@ func HandleToolCall(ctx context.Context, tools []*Tool, call ToolCall) (string, 
 		}
 	}
 	if tool == nil {
-		return "", fmt.Errorf("no such tool %q", call.Function.Name)
+		return nil, fmt.Errorf("no such tool %q", call.Function.Name)
 	}
 
 	var params map[string]any
 	if err := json.Unmarshal([]byte(call.Function.Arguments), &params); err != nil {
-		return "", fmt.Errorf("invalid tool arguments: %w", err)
+		return nil, fmt.Errorf("invalid tool arguments: %w", err)
 	}
 
 	return tool.Call(ctx, params)

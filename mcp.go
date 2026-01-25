@@ -8,12 +8,18 @@ import (
 	http "github.com/metoro-io/mcp-golang/transport/http"
 )
 
+// ToolResult contains the result of a tool call, optionally with images
+type ToolResult struct {
+	Content string
+	Images  []string // optional base64 encoded images
+}
+
 type Tool struct {
 	Name        string
 	Description string
 	Params      any
 
-	Call func(context.Context, any) (string, error)
+	Call func(context.Context, any) (*ToolResult, error)
 }
 
 func (t *Tool) ApiDef() ToolParam {
@@ -27,18 +33,21 @@ func (t *Tool) ApiDef() ToolParam {
 	}
 }
 
-func mcpCall(t *Tool, client *mcpgo.Client) func(ctx context.Context, param any) (string, error) {
-	return func(ctx context.Context, param any) (string, error) {
+func mcpCall(t *Tool, client *mcpgo.Client) func(ctx context.Context, param any) (*ToolResult, error) {
+	return func(ctx context.Context, param any) (*ToolResult, error) {
 		resp, err := client.CallTool(ctx, t.Name, param)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 
-		for i, c := range resp.Content {
-			fmt.Println(i, c.Type, c.TextContent)
+		var content string
+		for _, c := range resp.Content {
+			if c.TextContent != nil {
+				content += fmt.Sprintf("%v", *c.TextContent)
+			}
 		}
 
-		return "", nil
+		return &ToolResult{Content: content}, nil
 	}
 }
 
