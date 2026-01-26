@@ -45,9 +45,10 @@ type anthropicToolUseBlock struct {
 }
 
 type anthropicToolResultBlock struct {
-	Type      string `json:"type"`
-	ToolUseID string `json:"tool_use_id"`
-	Content   string `json:"content"`
+	Type         string                 `json:"type"`
+	ToolUseID    string                 `json:"tool_use_id"`
+	Content      string                 `json:"content"`
+	CacheControl *anthropicCacheControl `json:"cache_control,omitempty"`
 }
 
 type anthropicImageBlock struct {
@@ -160,13 +161,16 @@ func (c *Client) ChatCompletionAnthropic(opts RequestOptions) (*ResponseMessageG
 		if msg.Role == "tool" {
 			// Tool result
 			antMsg.Role = "user"
-			antMsg.Content = []interface{}{
-				anthropicToolResultBlock{
-					Type:      "tool_result",
-					ToolUseID: msg.ToolCallID,
-					Content:   msg.Content,
-				},
+			toolResult := anthropicToolResultBlock{
+				Type:      "tool_result",
+				ToolUseID: msg.ToolCallID,
+				Content:   msg.Content,
 			}
+			// Cache tool results when they're the last message
+			if i == len(opts.Messages)-1 {
+				toolResult.CacheControl = &anthropicCacheControl{Type: "ephemeral"}
+			}
+			antMsg.Content = []interface{}{toolResult}
 		} else if msg.Role == "assistant" {
 			// Assistant message - may have text and/or tool calls
 			if msg.Content != "" {
