@@ -47,7 +47,7 @@ type anthropicToolUseBlock struct {
 type anthropicToolResultBlock struct {
 	Type         string                 `json:"type"`
 	ToolUseID    string                 `json:"tool_use_id"`
-	Content      string                 `json:"content"`
+	Content      []interface{}          `json:"content"`
 	CacheControl *anthropicCacheControl `json:"cache_control,omitempty"`
 }
 
@@ -159,12 +159,35 @@ func (c *Client) ChatCompletionAnthropic(opts RequestOptions) (*ResponseMessageG
 		}
 
 		if msg.Role == "tool" {
-			// Tool result
+			// Tool result - build content as array of blocks
 			antMsg.Role = "user"
+
+			var resultContent []interface{}
+
+			// Add text content
+			if msg.Content != "" {
+				resultContent = append(resultContent, anthropicTextBlock{
+					Type: "text",
+					Text: msg.Content,
+				})
+			}
+
+			// Add images if present
+			for _, img := range msg.Images {
+				resultContent = append(resultContent, anthropicImageBlock{
+					Type: "image",
+					Source: anthropicImageSource{
+						Type:      "base64",
+						MediaType: "image/jpeg",
+						Data:      img,
+					},
+				})
+			}
+
 			toolResult := anthropicToolResultBlock{
 				Type:      "tool_result",
 				ToolUseID: msg.ToolCallID,
-				Content:   msg.Content,
+				Content:   resultContent,
 			}
 			// Cache tool results when they're the last message
 			if i == len(opts.Messages)-1 {

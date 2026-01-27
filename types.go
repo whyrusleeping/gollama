@@ -46,12 +46,11 @@ type Message struct {
 
 // MarshalJSON implements custom JSON marshaling supporting both OpenAI and Anthropic formats.
 // When images are present, it uses OpenAI format by default, or Anthropic format if UseAnthropicFormat is true.
-// Tool messages (role="tool") always use string content since APIs don't support images in tool results.
+// Tool messages with images are handled by the Anthropic-specific code path in ChatCompletionAnthropic.
 func (m Message) MarshalJSON() ([]byte, error) {
 	type MessageAlias Message
 
-	// Tool messages must have string content (APIs don't support images in tool results)
-	// Images in tool results are stored but need to be injected into a follow-up user message
+	// Tool messages use standard marshaling; images are handled in ChatCompletionAnthropic
 	if m.Role == "tool" {
 		alias := MessageAlias(m)
 		return json.Marshal(alias)
