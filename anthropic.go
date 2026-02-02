@@ -9,11 +9,11 @@ import (
 // Anthropic native API types
 
 type anthropicRequest struct {
-	Model     string                   `json:"model"`
-	MaxTokens int                      `json:"max_tokens"`
-	System    []anthropicSystemBlock   `json:"system,omitempty"`
-	Messages  []anthropicMessage       `json:"messages"`
-	Tools     []anthropicTool          `json:"tools,omitempty"`
+	Model     string                 `json:"model"`
+	MaxTokens int                    `json:"max_tokens"`
+	System    []anthropicSystemBlock `json:"system,omitempty"`
+	Messages  []anthropicMessage     `json:"messages"`
+	Tools     []anthropicTool        `json:"tools,omitempty"`
 }
 
 type anthropicSystemBlock struct {
@@ -70,14 +70,14 @@ type anthropicTool struct {
 }
 
 type anthropicResponse struct {
-	ID           string                 `json:"id"`
-	Type         string                 `json:"type"`
-	Role         string                 `json:"role"`
+	ID           string                  `json:"id"`
+	Type         string                  `json:"type"`
+	Role         string                  `json:"role"`
 	Content      []anthropicContentBlock `json:"content"`
-	Model        string                 `json:"model"`
-	StopReason   string                 `json:"stop_reason"`
-	StopSequence *string                `json:"stop_sequence"`
-	Usage        anthropicUsage         `json:"usage"`
+	Model        string                  `json:"model"`
+	StopReason   string                  `json:"stop_reason"`
+	StopSequence *string                 `json:"stop_sequence"`
+	Usage        anthropicUsage          `json:"usage"`
 }
 
 type anthropicContentBlock struct {
@@ -155,14 +155,15 @@ func (c *Client) ChatCompletionAnthropic(opts RequestOptions) (*ResponseMessageG
 		msg := opts.Messages[i]
 
 		antMsg := anthropicMessage{
-			Role: msg.Role,
+			Role:    msg.Role,
+			Content: []any{},
 		}
 
 		if msg.Role == "tool" {
 			// Tool result - build content as array of blocks
 			antMsg.Role = "user"
 
-			var resultContent []interface{}
+			var resultContent []any
 
 			// Add text content
 			if msg.Content != "" {
@@ -189,6 +190,21 @@ func (c *Client) ChatCompletionAnthropic(opts RequestOptions) (*ResponseMessageG
 				ToolUseID: msg.ToolCallID,
 				Content:   resultContent,
 			}
+
+			// consecutive tool results need to be in a single message, so merge them here
+			if len(req.Messages) > 0 {
+				lastMsg := &req.Messages[len(req.Messages)-1]
+				if lastMsg.Role == "user" && len(lastMsg.Content) > 0 {
+					if _, ok := lastMsg.Content[0].(anthropicToolResultBlock); ok {
+						if i == len(opts.Messages)-1 {
+							toolResult.CacheControl = &anthropicCacheControl{Type: "ephemeral"}
+						}
+						lastMsg.Content = append(lastMsg.Content, toolResult)
+						continue
+					}
+				}
+			}
+
 			// Cache tool results when they're the last message
 			if i == len(opts.Messages)-1 {
 				toolResult.CacheControl = &anthropicCacheControl{Type: "ephemeral"}
