@@ -38,10 +38,11 @@ type anthropicTextBlock struct {
 }
 
 type anthropicToolUseBlock struct {
-	Type  string `json:"type"`
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Input any    `json:"input"`
+	Type         string                 `json:"type"`
+	ID           string                 `json:"id"`
+	Name         string                 `json:"name"`
+	Input        any                    `json:"input"`
+	CacheControl *anthropicCacheControl `json:"cache_control,omitempty"`
 }
 
 type anthropicToolResultBlock struct {
@@ -149,8 +150,22 @@ func (c *Client) ChatCompletionAnthropic(opts RequestOptions) (*ResponseMessageG
 	}
 
 	// Convert messages to Anthropic format
-	// Strategy: only cache the LAST user message (Anthropic allows max 4 cache breakpoints)
-	// The system prompt and tools are cached above, so we use 1 more for conversation
+	// Strategy: Anthropic allows max 4 cache breakpoints. We use them as:
+	// 1. System prompt (cached above)
+	// 2. Last tool definition (cached above)
+	// 3. Last assistant message (often contains large tool_use blocks with generated code)
+	// 4. Last user/tool_result message
+	// This ensures that when a tool returns a small result after a large tool_use,
+	// the assistant's tool_use content is cached and doesn't need to be reprocessed.
+
+	// Find the last assistant message index for caching
+	lastAssistantIdx := -1
+	for i := startIdx; i < len(opts.Messages); i++ {
+		if opts.Messages[i].Role == "assistant" {
+			lastAssistantIdx = i
+		}
+	}
+
 	for i := startIdx; i < len(opts.Messages); i++ {
 		msg := opts.Messages[i]
 
@@ -212,21 +227,35 @@ func (c *Client) ChatCompletionAnthropic(opts RequestOptions) (*ResponseMessageG
 			antMsg.Content = []interface{}{toolResult}
 		} else if msg.Role == "assistant" {
 			// Assistant message - may have text and/or tool calls
+			// Cache the last assistant message to avoid re-processing large tool_use blocks
+			isLastAssistant := i == lastAssistantIdx
+			hasToolCalls := len(msg.ToolCalls) > 0
+
 			if msg.Content != "" {
-				antMsg.Content = append(antMsg.Content, anthropicTextBlock{
+				textBlock := anthropicTextBlock{
 					Type: "text",
 					Text: msg.Content,
-				})
+				}
+				// If this is the last assistant message and has no tool calls, cache the text block
+				if isLastAssistant && !hasToolCalls {
+					textBlock.CacheControl = &anthropicCacheControl{Type: "ephemeral"}
+				}
+				antMsg.Content = append(antMsg.Content, textBlock)
 			}
-			for _, tc := range msg.ToolCalls {
+			for j, tc := range msg.ToolCalls {
 				var input any
 				json.Unmarshal([]byte(tc.Function.Arguments), &input)
-				antMsg.Content = append(antMsg.Content, anthropicToolUseBlock{
+				toolUseBlock := anthropicToolUseBlock{
 					Type:  "tool_use",
 					ID:    tc.ID,
 					Name:  tc.Function.Name,
 					Input: input,
-				})
+				}
+				// Cache the last tool_use block of the last assistant message
+				if isLastAssistant && j == len(msg.ToolCalls)-1 {
+					toolUseBlock.CacheControl = &anthropicCacheControl{Type: "ephemeral"}
+				}
+				antMsg.Content = append(antMsg.Content, toolUseBlock)
 			}
 		} else {
 			// User message - only cache the very last one
