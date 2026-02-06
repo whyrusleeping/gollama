@@ -143,7 +143,10 @@ func (c *Client) ChatCompletionAnthropic(opts RequestOptions) (*ResponseMessageG
 		startIdx = 1
 	}
 
-	// Convert tools with caching on last tool
+	// Convert tools, optionally caching the last tool.
+	// When SystemBlocks is provided, the caller manages cache breakpoints explicitly,
+	// so we skip the tools breakpoint to stay within Anthropic's 4-breakpoint limit.
+	cacheTools := len(opts.SystemBlocks) == 0
 	if len(opts.Tools) > 0 {
 		for i, t := range opts.Tools {
 			tool := anthropicTool{
@@ -151,8 +154,7 @@ func (c *Client) ChatCompletionAnthropic(opts RequestOptions) (*ResponseMessageG
 				Description: t.Function.Description,
 				InputSchema: t.Function.Parameters,
 			}
-			// Cache the last tool (caches all tools as a prefix)
-			if i == len(opts.Tools)-1 {
+			if cacheTools && i == len(opts.Tools)-1 {
 				tool.CacheControl = &anthropicCacheControl{Type: "ephemeral"}
 			}
 			req.Tools = append(req.Tools, tool)
