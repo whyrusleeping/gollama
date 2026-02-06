@@ -109,8 +109,21 @@ func (c *Client) ChatCompletionAnthropic(opts RequestOptions) (*ResponseMessageG
 		req.MaxTokens = opts.Options.MaxTokens
 	}
 
-	// Convert system prompt to Anthropic format with caching
-	if opts.System != "" {
+	// Convert system prompt to Anthropic format with caching.
+	// Priority: SystemBlocks > System string > messages[0] with role "system"
+	startIdx := 0
+	if len(opts.SystemBlocks) > 0 {
+		for _, block := range opts.SystemBlocks {
+			sb := anthropicSystemBlock{
+				Type: "text",
+				Text: block.Text,
+			}
+			if block.Cache {
+				sb.CacheControl = &anthropicCacheControl{Type: "ephemeral"}
+			}
+			req.System = append(req.System, sb)
+		}
+	} else if opts.System != "" {
 		req.System = []anthropicSystemBlock{
 			{
 				Type:         "text",
@@ -118,11 +131,8 @@ func (c *Client) ChatCompletionAnthropic(opts RequestOptions) (*ResponseMessageG
 				CacheControl: &anthropicCacheControl{Type: "ephemeral"},
 			},
 		}
-	}
-
-	// Find system message in messages array (first message if role is "system")
-	startIdx := 0
-	if len(opts.Messages) > 0 && opts.Messages[0].Role == "system" {
+	} else if len(opts.Messages) > 0 && opts.Messages[0].Role == "system" {
+		// Find system message in messages array (first message if role is "system")
 		req.System = []anthropicSystemBlock{
 			{
 				Type:         "text",

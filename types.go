@@ -4,22 +4,30 @@ import (
 	"encoding/json"
 )
 
+// SystemBlock represents a single block of system prompt content.
+// Multiple blocks allow static content to be cached separately from dynamic content.
+type SystemBlock struct {
+	Text  string
+	Cache bool // whether to set cache_control: ephemeral
+}
+
 // RequestOptions contains options for API requests.
 // Used by Generate, Chat, and ChatCompletion methods.
 type RequestOptions struct {
-	Model      string      `json:"model"`
-	Prompt     string      `json:"prompt,omitempty"`
-	System     string      `json:"system,omitempty"`
-	Context    []int       `json:"context,omitempty"`
-	Format     string      `json:"format,omitempty"`
-	Raw        bool        `json:"raw,omitempty"`
-	Images     []string    `json:"images,omitempty"`
-	Stream     bool        `json:"stream"`
-	Messages   []Message   `json:"messages,omitempty"`
-	Options    *Options    `json:"options,omitempty"`
-	Think      bool        `json:"think"`
-	Tools      []ToolParam `json:"tools,omitempty"`
-	ToolChoice string      `json:"tool_choice,omitempty"`
+	Model        string        `json:"model"`
+	Prompt       string        `json:"prompt,omitempty"`
+	System       string        `json:"system,omitempty"`
+	SystemBlocks []SystemBlock `json:"-"` // Multi-block system prompt (Anthropic only); takes priority over System
+	Context      []int         `json:"context,omitempty"`
+	Format       string        `json:"format,omitempty"`
+	Raw          bool          `json:"raw,omitempty"`
+	Images       []string      `json:"images,omitempty"`
+	Stream       bool          `json:"stream"`
+	Messages     []Message     `json:"messages,omitempty"`
+	Options      *Options      `json:"options,omitempty"`
+	Think        bool          `json:"think"`
+	Tools        []ToolParam   `json:"tools,omitempty"`
+	ToolChoice   string        `json:"tool_choice,omitempty"`
 }
 
 // Options contains model parameters for controlling generation behavior.
