@@ -25,7 +25,7 @@ type RequestOptions struct {
 	Stream       bool          `json:"stream"`
 	Messages     []Message     `json:"messages,omitempty"`
 	Options      *Options      `json:"options,omitempty"`
-	Think        bool          `json:"think"`
+	Think        bool          `json:"think,omitempty"`
 	Tools        []ToolParam   `json:"tools,omitempty"`
 	ToolChoice   string        `json:"tool_choice,omitempty"`
 }
