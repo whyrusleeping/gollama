@@ -38,6 +38,20 @@ type Options struct {
 	MaxTokens   int     `json:"num_predict,omitempty"`
 }
 
+// ContentBlock represents a single block within a multi-content message.
+// Supports text blocks and image blocks (base64 or URL).
+type ContentBlock struct {
+	Type string // "text" or "image"
+
+	// Text block fields
+	Text string
+
+	// Image block fields
+	ImageURL       string // URL source (e.g. CDN URL)
+	ImageBase64    string // Base64-encoded image data
+	ImageMediaType string // e.g. "image/jpeg", "image/png"
+}
+
 // Message represents a chat message with support for text, images, and tool calls.
 type Message struct {
 	Role             string     `json:"role"`
@@ -47,6 +61,9 @@ type Message struct {
 	Images           []string   `json:"images,omitempty"`
 	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID       string     `json:"tool_call_id,omitempty"`
+	// MultiContent allows arbitrary interleaving of text and image content blocks.
+	// When set, Content and Images fields are ignored for this message.
+	MultiContent []ContentBlock `json:"-"`
 	// UseAnthropicFormat uses Anthropic's native image format instead of OpenAI format.
 	// Set to true when using Anthropic's /v1/messages or batch API directly.
 	UseAnthropicFormat bool `json:"-"`

@@ -58,9 +58,10 @@ type anthropicImageBlock struct {
 }
 
 type anthropicImageSource struct {
-	Type      string `json:"type"`
-	MediaType string `json:"media_type"`
-	Data      string `json:"data"`
+	Type      string `json:"type"`                 // "base64" or "url"
+	MediaType string `json:"media_type,omitempty"` // required for base64
+	Data      string `json:"data,omitempty"`       // base64 data
+	URL       string `json:"url,omitempty"`         // URL source
 }
 
 type anthropicTool struct {
@@ -273,27 +274,70 @@ func (c *Client) ChatCompletionAnthropic(opts RequestOptions) (*ResponseMessageG
 			// User message - only cache the very last one
 			isLastMessage := i == len(opts.Messages)-1
 
-			// Handle images
-			for _, img := range msg.Images {
-				antMsg.Content = append(antMsg.Content, anthropicImageBlock{
-					Type: "image",
-					Source: anthropicImageSource{
-						Type:      "base64",
-						MediaType: "image/jpeg",
-						Data:      img,
-					},
-				})
-			}
+			if len(msg.MultiContent) > 0 {
+				// Use explicit content blocks for interleaved text+image
+				for _, block := range msg.MultiContent {
+					switch block.Type {
+					case "text":
+						antMsg.Content = append(antMsg.Content, anthropicTextBlock{
+							Type: "text",
+							Text: block.Text,
+						})
+					case "image":
+						if block.ImageURL != "" {
+							antMsg.Content = append(antMsg.Content, anthropicImageBlock{
+								Type: "image",
+								Source: anthropicImageSource{
+									Type: "url",
+									URL:  block.ImageURL,
+								},
+							})
+						} else if block.ImageBase64 != "" {
+							mediaType := block.ImageMediaType
+							if mediaType == "" {
+								mediaType = "image/jpeg"
+							}
+							antMsg.Content = append(antMsg.Content, anthropicImageBlock{
+								Type: "image",
+								Source: anthropicImageSource{
+									Type:      "base64",
+									MediaType: mediaType,
+									Data:      block.ImageBase64,
+								},
+							})
+						}
+					}
+				}
+				// Add cache control to last block if this is the last message
+				if isLastMessage && len(antMsg.Content) > 0 {
+					if tb, ok := antMsg.Content[len(antMsg.Content)-1].(anthropicTextBlock); ok {
+						tb.CacheControl = &anthropicCacheControl{Type: "ephemeral"}
+						antMsg.Content[len(antMsg.Content)-1] = tb
+					}
+				}
+			} else {
+				// Handle images
+				for _, img := range msg.Images {
+					antMsg.Content = append(antMsg.Content, anthropicImageBlock{
+						Type: "image",
+						Source: anthropicImageSource{
+							Type:      "base64",
+							MediaType: "image/jpeg",
+							Data:      img,
+						},
+					})
+				}
 
-			// Add text content
-			textBlock := anthropicTextBlock{
-				Type: "text",
-				Text: msg.Content,
+				// Add text content
+				textBlock := anthropicTextBlock{
+					Type: "text",
+					Text: msg.Content,
+				}
+				if isLastMessage {
+					textBlock.CacheControl = &anthropicCacheControl{Type: "ephemeral"}
+				}
+				antMsg.Content = append(antMsg.Content, textBlock)
 			}
-			if isLastMessage {
-				textBlock.CacheControl = &anthropicCacheControl{Type: "ephemeral"}
-			}
-			antMsg.Content = append(antMsg.Content, textBlock)
 		}
 
 		req.Messages = append(req.Messages, antMsg)
