@@ -50,6 +50,9 @@ type ContentBlock struct {
 	ImageURL       string // URL source (e.g. CDN URL)
 	ImageBase64    string // Base64-encoded image data
 	ImageMediaType string // e.g. "image/jpeg", "image/png"
+
+	// Cache marks this block for cache_control: ephemeral (Anthropic only).
+	Cache bool
 }
 
 // Message represents a chat message with support for text, images, and tool calls.

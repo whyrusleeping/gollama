@@ -279,10 +279,14 @@ func (c *Client) ChatCompletionAnthropic(opts RequestOptions) (*ResponseMessageG
 				for _, block := range msg.MultiContent {
 					switch block.Type {
 					case "text":
-						antMsg.Content = append(antMsg.Content, anthropicTextBlock{
+						tb := anthropicTextBlock{
 							Type: "text",
 							Text: block.Text,
-						})
+						}
+						if block.Cache {
+							tb.CacheControl = &anthropicCacheControl{Type: "ephemeral"}
+						}
+						antMsg.Content = append(antMsg.Content, tb)
 					case "image":
 						if block.ImageURL != "" {
 							antMsg.Content = append(antMsg.Content, anthropicImageBlock{
@@ -308,11 +312,20 @@ func (c *Client) ChatCompletionAnthropic(opts RequestOptions) (*ResponseMessageG
 						}
 					}
 				}
-				// Add cache control to last block if this is the last message
+				// Add cache control to last block if this is the last message (fallback)
 				if isLastMessage && len(antMsg.Content) > 0 {
-					if tb, ok := antMsg.Content[len(antMsg.Content)-1].(anthropicTextBlock); ok {
-						tb.CacheControl = &anthropicCacheControl{Type: "ephemeral"}
-						antMsg.Content[len(antMsg.Content)-1] = tb
+					hasExplicitCache := false
+					for _, block := range msg.MultiContent {
+						if block.Cache {
+							hasExplicitCache = true
+							break
+						}
+					}
+					if !hasExplicitCache {
+						if tb, ok := antMsg.Content[len(antMsg.Content)-1].(anthropicTextBlock); ok {
+							tb.CacheControl = &anthropicCacheControl{Type: "ephemeral"}
+							antMsg.Content[len(antMsg.Content)-1] = tb
+						}
 					}
 				}
 			} else {
