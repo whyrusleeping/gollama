@@ -61,11 +61,37 @@ func (c *Client) ChatCompletion(opts RequestOptions) (*ResponseMessageGenerate, 
 		messages = append([]Message{{Role: "system", Content: opts.System}}, messages...)
 	}
 
+	// Normalize tool parameters for strict OpenAI-compatible servers (e.g. llama.cpp)
+	// that reject null where an array is expected. Replace nil slices/maps with
+	// empty ones so they serialize as [] / {} instead of null.
+	tools := opts.Tools
+	for i := range tools {
+		if tools[i].Function == nil {
+			continue
+		}
+		if tfp, ok := tools[i].Function.Parameters.(*ToolFunctionParams); ok {
+			if tfp.Required == nil {
+				tfp.Required = []string{}
+			}
+			if tfp.Properties == nil {
+				tfp.Properties = map[string]any{}
+			}
+		} else if tfp, ok := tools[i].Function.Parameters.(ToolFunctionParams); ok {
+			if tfp.Required == nil {
+				tfp.Required = []string{}
+			}
+			if tfp.Properties == nil {
+				tfp.Properties = map[string]any{}
+			}
+			tools[i].Function.Parameters = tfp
+		}
+	}
+
 	// Build a clean request with field order optimized for prefix caching:
 	// model -> tools (static) -> messages (dynamic)
 	req := openaiRequest{
 		Model:      opts.Model,
-		Tools:      opts.Tools,
+		Tools:      tools,
 		ToolChoice: opts.ToolChoice,
 		Messages:   messages,
 		Stream:     opts.Stream,

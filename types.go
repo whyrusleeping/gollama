@@ -84,6 +84,45 @@ func (m Message) MarshalJSON() ([]byte, error) {
 		return json.Marshal(alias)
 	}
 
+	// Handle MultiContent for OpenAI-compatible APIs: convert content blocks
+	// into the OpenAI content array format (text blocks + image_url blocks).
+	if len(m.MultiContent) > 0 && !m.UseAnthropicFormat {
+		var content []map[string]interface{}
+		for _, block := range m.MultiContent {
+			switch block.Type {
+			case "text":
+				content = append(content, map[string]interface{}{
+					"type": "text",
+					"text": block.Text,
+				})
+			case "image":
+				if block.ImageURL != "" {
+					content = append(content, map[string]interface{}{
+						"type":      "image_url",
+						"image_url": map[string]string{"url": block.ImageURL},
+					})
+				} else if block.ImageBase64 != "" {
+					mediaType := block.ImageMediaType
+					if mediaType == "" {
+						mediaType = "image/jpeg"
+					}
+					content = append(content, map[string]interface{}{
+						"type":      "image_url",
+						"image_url": map[string]string{"url": "data:" + mediaType + ";base64," + block.ImageBase64},
+					})
+				}
+			}
+		}
+		result := map[string]interface{}{
+			"role":    m.Role,
+			"content": content,
+		}
+		if len(m.ToolCalls) > 0 {
+			result["tool_calls"] = m.ToolCalls
+		}
+		return json.Marshal(result)
+	}
+
 	// If no images, use standard marshaling
 	if len(m.Images) == 0 {
 		alias := MessageAlias(m)
