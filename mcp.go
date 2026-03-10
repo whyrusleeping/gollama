@@ -12,6 +12,7 @@ import (
 type ToolResult struct {
 	Content string
 	Images  []string // optional base64 encoded images
+	IsError bool     // true if this result represents an error
 }
 
 type Tool struct {
