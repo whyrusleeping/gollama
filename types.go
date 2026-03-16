@@ -28,6 +28,7 @@ type RequestOptions struct {
 	Think        bool          `json:"think,omitempty"`
 	Tools        []ToolParam   `json:"tools,omitempty"`
 	ToolChoice   string        `json:"tool_choice,omitempty"`
+	ExtraBody    map[string]any `json:"-"` // Extra top-level fields merged into the request body (OpenAI path only)
 }
 
 // Options contains model parameters for controlling generation behavior.

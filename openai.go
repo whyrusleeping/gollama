@@ -98,8 +98,25 @@ func (c *Client) ChatCompletion(opts RequestOptions) (*ResponseMessageGenerate, 
 		Options:    opts.Options,
 	}
 
+	// If ExtraBody is set, merge its keys into the request as top-level fields
+	var body any = req
+	if len(opts.ExtraBody) > 0 {
+		raw, err := json.Marshal(req)
+		if err != nil {
+			return nil, fmt.Errorf("marshal request for extra body merge: %w", err)
+		}
+		var merged map[string]any
+		if err := json.Unmarshal(raw, &merged); err != nil {
+			return nil, fmt.Errorf("unmarshal request for extra body merge: %w", err)
+		}
+		for k, v := range opts.ExtraBody {
+			merged[k] = v
+		}
+		body = merged
+	}
+
 	// Set up request for OpenAI-compatible endpoint
-	resp, err := c.prepareRequest(req, "/chat/completions")
+	resp, err := c.prepareRequest(body, "/chat/completions")
 	if err != nil {
 		return nil, err
 	}
