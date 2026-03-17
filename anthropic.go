@@ -207,7 +207,7 @@ func (c *Client) ChatCompletionAnthropic(opts RequestOptions) (*ResponseMessageG
 					Type: "image",
 					Source: anthropicImageSource{
 						Type:      "base64",
-						MediaType: "image/jpeg",
+						MediaType: DetectImageMediaType(img),
 						Data:      img,
 					},
 				})
@@ -299,7 +299,7 @@ func (c *Client) ChatCompletionAnthropic(opts RequestOptions) (*ResponseMessageG
 						} else if block.ImageBase64 != "" {
 							mediaType := block.ImageMediaType
 							if mediaType == "" {
-								mediaType = "image/jpeg"
+								mediaType = DetectImageMediaType(block.ImageBase64)
 							}
 							antMsg.Content = append(antMsg.Content, anthropicImageBlock{
 								Type: "image",
@@ -335,7 +335,7 @@ func (c *Client) ChatCompletionAnthropic(opts RequestOptions) (*ResponseMessageG
 						Type: "image",
 						Source: anthropicImageSource{
 							Type:      "base64",
-							MediaType: "image/jpeg",
+							MediaType: DetectImageMediaType(img),
 							Data:      img,
 						},
 					})

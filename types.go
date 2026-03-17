@@ -105,7 +105,7 @@ func (m Message) MarshalJSON() ([]byte, error) {
 				} else if block.ImageBase64 != "" {
 					mediaType := block.ImageMediaType
 					if mediaType == "" {
-						mediaType = "image/jpeg"
+						mediaType = DetectImageMediaType(block.ImageBase64)
 					}
 					content = append(content, map[string]interface{}{
 						"type":      "image_url",
@@ -140,13 +140,14 @@ func (m Message) MarshalJSON() ([]byte, error) {
 
 	// Add images in the appropriate format
 	for _, img := range m.Images {
+		mediaType := DetectImageMediaType(img)
 		if m.UseAnthropicFormat {
 			// Anthropic format for /v1/messages and batch API
 			content = append(content, map[string]interface{}{
 				"type": "image",
 				"source": map[string]string{
 					"type":       "base64",
-					"media_type": "image/jpeg",
+					"media_type": mediaType,
 					"data":       img,
 				},
 			})
@@ -155,7 +156,7 @@ func (m Message) MarshalJSON() ([]byte, error) {
 			content = append(content, map[string]interface{}{
 				"type": "image_url",
 				"image_url": map[string]string{
-					"url": "data:image/jpeg;base64," + img,
+					"url": "data:" + mediaType + ";base64," + img,
 				},
 			})
 		}
