@@ -8,12 +8,13 @@ import (
 )
 
 // Client represents a multi-provider LLM API client.
-// It can interact with Ollama, OpenAI-compatible, and Anthropic endpoints
+// It can interact with Ollama, OpenAI-compatible, Anthropic, and AWS Bedrock endpoints
 // depending on the baseURL and methods used.
 type Client struct {
 	baseURL    string
 	httpClient *http.Client
 	headers    map[string]string
+	bedrock    *BedrockConfig
 }
 
 // NewClient creates a new LLM API client with the specified base URL.

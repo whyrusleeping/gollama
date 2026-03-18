@@ -40,6 +40,11 @@ type openaiRequest struct {
 // Otherwise, uses the OpenAI-compatible /chat/completions endpoint.
 // Returns a ResponseMessageGenerate with choices and usage information.
 func (c *Client) ChatCompletion(opts RequestOptions) (*ResponseMessageGenerate, error) {
+	// Use AWS Bedrock endpoint
+	if c.IsBedrockAPI() {
+		return c.ChatCompletionBedrock(opts)
+	}
+
 	// Use native Anthropic API for caching support
 	if c.IsAnthropicAPI() {
 		return c.ChatCompletionAnthropic(opts)

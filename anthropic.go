@@ -3,6 +3,7 @@ package gollama
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
 )
 
@@ -97,11 +98,10 @@ type anthropicUsage struct {
 	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 }
 
-// ChatCompletionAnthropic sends a request using Anthropic's native API format with caching support.
-// The system prompt and the last user message before each assistant turn are marked for caching.
-func (c *Client) ChatCompletionAnthropic(opts RequestOptions) (*ResponseMessageGenerate, error) {
-	// Build Anthropic request
-	req := anthropicRequest{
+// buildAnthropicRequest converts generic RequestOptions into an Anthropic-native request struct.
+// This is shared by both the direct Anthropic API and the Bedrock API paths.
+func buildAnthropicRequest(opts RequestOptions) (*anthropicRequest, error) {
+	req := &anthropicRequest{
 		Model:     opts.Model,
 		MaxTokens: 8192, // Default max tokens
 	}
@@ -133,7 +133,6 @@ func (c *Client) ChatCompletionAnthropic(opts RequestOptions) (*ResponseMessageG
 			},
 		}
 	} else if len(opts.Messages) > 0 && opts.Messages[0].Role == "system" {
-		// Find system message in messages array (first message if role is "system")
 		req.System = []anthropicSystemBlock{
 			{
 				Type:         "text",
@@ -356,26 +355,17 @@ func (c *Client) ChatCompletionAnthropic(opts RequestOptions) (*ResponseMessageG
 		req.Messages = append(req.Messages, antMsg)
 	}
 
-	// Send request to Anthropic's native endpoint
-	// Note: if baseURL already ends with /v1, we just use /messages
-	endpoint := "/v1/messages"
-	if strings.HasSuffix(c.baseURL, "/v1") {
-		endpoint = "/messages"
-	}
+	return req, nil
+}
 
-	resp, err := c.prepareRequest(req, endpoint)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	// Parse Anthropic response
+// parseAnthropicResponse converts an Anthropic API response into the standard ResponseMessageGenerate format.
+// This is shared by both the direct Anthropic API and the Bedrock API paths.
+func parseAnthropicResponse(resp *http.Response) (*ResponseMessageGenerate, error) {
 	var antResp anthropicResponse
 	if err := json.NewDecoder(resp.Body).Decode(&antResp); err != nil {
 		return nil, fmt.Errorf("error decoding Anthropic response: %w", err)
 	}
 
-	// Convert to standard response format
 	result := &ResponseMessageGenerate{
 		Model: antResp.Model,
 		Usage: Usage{
@@ -395,7 +385,6 @@ func (c *Client) ChatCompletionAnthropic(opts RequestOptions) (*ResponseMessageG
 		},
 	}
 
-	// Convert content blocks
 	var toolCalls []ToolCall
 	var textContent strings.Builder
 	for _, block := range antResp.Content {
@@ -419,6 +408,30 @@ func (c *Client) ChatCompletionAnthropic(opts RequestOptions) (*ResponseMessageG
 	result.Choices[0].Message.ToolCalls = toolCalls
 
 	return result, nil
+}
+
+// ChatCompletionAnthropic sends a request using Anthropic's native API format with caching support.
+// The system prompt and the last user message before each assistant turn are marked for caching.
+func (c *Client) ChatCompletionAnthropic(opts RequestOptions) (*ResponseMessageGenerate, error) {
+	req, err := buildAnthropicRequest(opts)
+	if err != nil {
+		return nil, err
+	}
+
+	// Send request to Anthropic's native endpoint
+	// Note: if baseURL already ends with /v1, we just use /messages
+	endpoint := "/v1/messages"
+	if strings.HasSuffix(c.baseURL, "/v1") {
+		endpoint = "/messages"
+	}
+
+	resp, err := c.prepareRequest(req, endpoint)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	return parseAnthropicResponse(resp)
 }
 
 // IsAnthropicAPI checks if the client is configured to use Anthropic's API
