@@ -16,6 +16,13 @@ import (
 	"time"
 )
 
+// Bedrock model inference profile IDs.
+const (
+	BedrockHaiku45  = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+	BedrockSonnet46 = "global.anthropic.claude-sonnet-4-6"
+	BedrockOpus46   = "global.anthropic.claude-opus-4-6-v1"
+)
+
 // BedrockConfig holds AWS credentials and region for Bedrock API access.
 type BedrockConfig struct {
 	Region    string
@@ -160,7 +167,7 @@ func signRequestWithTime(cfg *BedrockConfig, req *http.Request, payload []byte, 
 		"content-type":         req.Header.Get("Content-Type"),
 		"host":                 host,
 		"x-amz-content-sha256": payloadHash,
-		"x-amz-date":          amzdate,
+		"x-amz-date":           amzdate,
 	}
 	if cfg.Token != "" {
 		canonicalHeaders["x-amz-security-token"] = cfg.Token

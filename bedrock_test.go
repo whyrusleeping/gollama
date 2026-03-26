@@ -26,7 +26,7 @@ func TestBedrockChatCompletion(t *testing.T) {
 	client := getBedrockClient(t)
 
 	resp, err := client.ChatCompletion(RequestOptions{
-		Model: "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+		Model: BedrockOpus46,
 		Messages: []Message{
 			{Role: "user", Content: "Say hello in exactly three words."},
 		},
@@ -62,7 +62,7 @@ func TestBedrockWithSystemPrompt(t *testing.T) {
 	client := getBedrockClient(t)
 
 	resp, err := client.ChatCompletion(RequestOptions{
-		Model:  "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+		Model:  BedrockHaiku45,
 		System: "You are a pirate. Respond in pirate speak.",
 		Messages: []Message{
 			{Role: "user", Content: "What is 2+2?"},
@@ -83,7 +83,7 @@ func TestBedrockWithToolUse(t *testing.T) {
 	client := getBedrockClient(t)
 
 	resp, err := client.ChatCompletion(RequestOptions{
-		Model: "global.anthropic.claude-haiku-4-5-20251001-v1:0",
+		Model: BedrockHaiku45,
 		Messages: []Message{
 			{Role: "user", Content: "What's the weather in Seattle?"},
 		},
