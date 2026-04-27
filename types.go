@@ -40,9 +40,9 @@ type Options struct {
 }
 
 // ContentBlock represents a single block within a multi-content message.
-// Supports text blocks and image blocks (base64 or URL).
+// Supports text, image (base64 or URL), and document (e.g. PDF) blocks.
 type ContentBlock struct {
-	Type string // "text" or "image"
+	Type string // "text", "image", or "document"
 
 	// Text block fields
 	Text string
@@ -52,8 +52,23 @@ type ContentBlock struct {
 	ImageBase64    string // Base64-encoded image data
 	ImageMediaType string // e.g. "image/jpeg", "image/png"
 
+	// Document block fields (Anthropic only; e.g. PDF)
+	DocumentBase64    string // Base64-encoded document data
+	DocumentURL       string // URL source (alternative to base64)
+	DocumentMediaType string // e.g. "application/pdf"
+	DocumentTitle     string // optional title shown to the model
+
 	// Cache marks this block for cache_control: ephemeral (Anthropic only).
 	Cache bool
+}
+
+// Document represents a document (e.g. PDF) attached to a message or
+// returned as part of a tool result. Anthropic-only; ignored by other backends.
+type Document struct {
+	Base64    string // Base64-encoded document data
+	URL       string // URL source (alternative to base64)
+	MediaType string // e.g. "application/pdf"
+	Title     string // optional title shown to the model
 }
 
 // Message represents a chat message with support for text, images, and tool calls.
@@ -63,6 +78,7 @@ type Message struct {
 	Thinking         string     `json:"thinking,omitempty"`
 	ReasoningContent string     `json:"reasoning_content,omitempty"`
 	Images           []string   `json:"images,omitempty"`
+	Documents        []Document `json:"-"` // Anthropic-only; attached as document blocks
 	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID       string     `json:"tool_call_id,omitempty"`
 	// MultiContent allows arbitrary interleaving of text and image content blocks.

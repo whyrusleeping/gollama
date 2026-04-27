@@ -8,11 +8,14 @@ import (
 	http "github.com/metoro-io/mcp-golang/transport/http"
 )
 
-// ToolResult contains the result of a tool call, optionally with images
+// ToolResult contains the result of a tool call.
+// Optionally carries images and/or documents (e.g. PDFs) for backends that
+// support them in tool result blocks (currently Anthropic native API only).
 type ToolResult struct {
-	Content string
-	Images  []string // optional base64 encoded images
-	IsError bool     // true if this result represents an error
+	Content   string
+	Images    []string   // optional base64 encoded images
+	Documents []Document // optional documents (e.g. PDFs)
+	IsError   bool       // true if this result represents an error
 }
 
 type Tool struct {

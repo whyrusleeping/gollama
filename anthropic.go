@@ -65,6 +65,45 @@ type anthropicImageSource struct {
 	URL       string `json:"url,omitempty"`         // URL source
 }
 
+type anthropicDocumentBlock struct {
+	Type   string                  `json:"type"` // "document"
+	Source anthropicDocumentSource `json:"source"`
+	Title  string                  `json:"title,omitempty"`
+}
+
+type anthropicDocumentSource struct {
+	Type      string `json:"type"`                 // "base64" or "url"
+	MediaType string `json:"media_type,omitempty"` // required for base64 (e.g. "application/pdf")
+	Data      string `json:"data,omitempty"`       // base64 data
+	URL       string `json:"url,omitempty"`         // URL source
+}
+
+// buildAnthropicDocumentBlock constructs a document block from a Document,
+// preferring URL source when set, else base64.
+func buildAnthropicDocumentBlock(doc Document) anthropicDocumentBlock {
+	block := anthropicDocumentBlock{
+		Type:  "document",
+		Title: doc.Title,
+	}
+	if doc.URL != "" {
+		block.Source = anthropicDocumentSource{
+			Type: "url",
+			URL:  doc.URL,
+		}
+	} else {
+		mediaType := doc.MediaType
+		if mediaType == "" {
+			mediaType = "application/pdf"
+		}
+		block.Source = anthropicDocumentSource{
+			Type:      "base64",
+			MediaType: mediaType,
+			Data:      doc.Base64,
+		}
+	}
+	return block
+}
+
 type anthropicTool struct {
 	Name         string                 `json:"name"`
 	Description  string                 `json:"description"`
@@ -212,6 +251,11 @@ func buildAnthropicRequest(opts RequestOptions) (*anthropicRequest, error) {
 				})
 			}
 
+			// Add documents if present (e.g. PDFs)
+			for _, doc := range msg.Documents {
+				resultContent = append(resultContent, buildAnthropicDocumentBlock(doc))
+			}
+
 			toolResult := anthropicToolResultBlock{
 				Type:      "tool_result",
 				ToolUseID: msg.ToolCallID,
@@ -311,6 +355,13 @@ func buildAnthropicRequest(opts RequestOptions) (*anthropicRequest, error) {
 								},
 							})
 						}
+					case "document":
+						antMsg.Content = append(antMsg.Content, buildAnthropicDocumentBlock(Document{
+							Base64:    block.DocumentBase64,
+							URL:       block.DocumentURL,
+							MediaType: block.DocumentMediaType,
+							Title:     block.DocumentTitle,
+						}))
 					}
 				}
 				// Add cache control to last block if this is the last message (fallback)
@@ -340,6 +391,11 @@ func buildAnthropicRequest(opts RequestOptions) (*anthropicRequest, error) {
 							Data:      img,
 						},
 					})
+				}
+
+				// Handle documents (e.g. PDFs)
+				for _, doc := range msg.Documents {
+					antMsg.Content = append(antMsg.Content, buildAnthropicDocumentBlock(doc))
 				}
 
 				// Add text content
