@@ -26,6 +26,20 @@ type Tool struct {
 	Call func(context.Context, any) (*ToolResult, error)
 }
 
+// StringResultCall adapts a function returning (string, error) into the
+// Tool.Call signature. The returned wrapper packs the string into
+// ToolResult.Content. Useful when porting tools that don't need to attach
+// images or documents.
+func StringResultCall(fn func(context.Context, any) (string, error)) func(context.Context, any) (*ToolResult, error) {
+	return func(ctx context.Context, params any) (*ToolResult, error) {
+		s, err := fn(ctx, params)
+		if err != nil {
+			return nil, err
+		}
+		return &ToolResult{Content: s}, nil
+	}
+}
+
 func (t *Tool) ApiDef() ToolParam {
 	return ToolParam{
 		Type: "function",
