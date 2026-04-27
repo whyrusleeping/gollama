@@ -150,8 +150,9 @@ func buildAnthropicRequest(opts RequestOptions) (*anthropicRequest, error) {
 	}
 
 	// Convert system prompt to Anthropic format with caching.
-	// Priority: SystemBlocks > System string > messages[0] with role "system"
-	startIdx := 0
+	// Priority: SystemBlocks > System string > messages with role "system"
+	// Any role="system" message in opts.Messages is consumed here (regardless
+	// of position) since the native /v1/messages API rejects it as a chat role.
 	if len(opts.SystemBlocks) > 0 {
 		for _, block := range opts.SystemBlocks {
 			sb := anthropicSystemBlock{
@@ -171,15 +172,23 @@ func buildAnthropicRequest(opts RequestOptions) (*anthropicRequest, error) {
 				CacheControl: &anthropicCacheControl{Type: "ephemeral"},
 			},
 		}
-	} else if len(opts.Messages) > 0 && opts.Messages[0].Role == "system" {
-		req.System = []anthropicSystemBlock{
-			{
-				Type:         "text",
-				Text:         opts.Messages[0].Content,
-				CacheControl: &anthropicCacheControl{Type: "ephemeral"},
-			},
+	} else {
+		// Promote any role="system" messages to req.System (joined with blank lines).
+		var sysParts []string
+		for _, m := range opts.Messages {
+			if m.Role == "system" && m.Content != "" {
+				sysParts = append(sysParts, m.Content)
+			}
 		}
-		startIdx = 1
+		if len(sysParts) > 0 {
+			req.System = []anthropicSystemBlock{
+				{
+					Type:         "text",
+					Text:         strings.Join(sysParts, "\n\n"),
+					CacheControl: &anthropicCacheControl{Type: "ephemeral"},
+				},
+			}
+		}
 	}
 
 	// Convert tools, optionally caching the last tool.
@@ -209,16 +218,21 @@ func buildAnthropicRequest(opts RequestOptions) (*anthropicRequest, error) {
 	// This ensures that when a tool returns a small result after a large tool_use,
 	// the assistant's tool_use content is cached and doesn't need to be reprocessed.
 
-	// Find the last assistant message index for caching
+	// Find the last assistant message index for caching (skipping system msgs)
 	lastAssistantIdx := -1
-	for i := startIdx; i < len(opts.Messages); i++ {
+	for i := 0; i < len(opts.Messages); i++ {
 		if opts.Messages[i].Role == "assistant" {
 			lastAssistantIdx = i
 		}
 	}
 
-	for i := startIdx; i < len(opts.Messages); i++ {
+	for i := 0; i < len(opts.Messages); i++ {
 		msg := opts.Messages[i]
+
+		// System messages were promoted to req.System above; skip them here.
+		if msg.Role == "system" {
+			continue
+		}
 
 		antMsg := anthropicMessage{
 			Role:    msg.Role,
