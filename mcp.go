@@ -56,12 +56,9 @@ func ToolsFromMCP(ctx context.Context, host string) ([]*Tool, error) {
 	tpt := http.NewHTTPClientTransport(host)
 	client := mcpgo.NewClient(tpt)
 
-	resp, err := client.Initialize(ctx)
-	if err != nil {
+	if _, err := client.Initialize(ctx); err != nil {
 		return nil, err
 	}
-
-	_ = resp
 
 	tools, err := client.ListTools(ctx, nil)
 	if err != nil {
@@ -69,15 +66,18 @@ func ToolsFromMCP(ctx context.Context, host string) ([]*Tool, error) {
 	}
 
 	var out []*Tool
-	for _, t := range tools.Tools {
+	for _, mt := range tools.Tools {
+		desc := ""
+		if mt.Description != nil {
+			desc = *mt.Description
+		}
 		t := &Tool{
-			Name:        t.Name,
-			Description: *t.Description,
-			Params:      t.InputSchema,
+			Name:        mt.Name,
+			Description: desc,
+			Params:      mt.InputSchema,
 		}
 		t.Call = mcpCall(t, client)
 		out = append(out, t)
-
 	}
 
 	return out, nil
