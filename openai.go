@@ -26,13 +26,18 @@ func (c *Client) ListModels() ([]ModelDesc, error) {
 // openaiRequest is the request body for OpenAI-compatible /chat/completions endpoints.
 // Field order is chosen to maximize prefix caching: model and tools (static) come before
 // messages (dynamic), so the stable prefix is as long as possible.
+// Generation parameters are top-level per the OpenAI spec; the nested Options field is
+// kept for Ollama-compatible backends that expect it.
 type openaiRequest struct {
-	Model      string      `json:"model"`
-	Tools      []ToolParam `json:"tools,omitempty"`
-	ToolChoice string      `json:"tool_choice,omitempty"`
-	Messages   []Message   `json:"messages"`
-	Stream     bool        `json:"stream,omitempty"`
-	Options    *Options    `json:"options,omitempty"`
+	Model       string      `json:"model"`
+	Tools       []ToolParam `json:"tools,omitempty"`
+	ToolChoice  string      `json:"tool_choice,omitempty"`
+	Messages    []Message   `json:"messages"`
+	Stream      bool        `json:"stream,omitempty"`
+	MaxTokens   int         `json:"max_tokens,omitempty"`
+	Temperature *float64    `json:"temperature,omitempty"`
+	TopP        *float64    `json:"top_p,omitempty"`
+	Options     *Options    `json:"options,omitempty"`
 }
 
 // ChatCompletion sends a chat completion request.
@@ -103,6 +108,23 @@ func (c *Client) ChatCompletion(opts RequestOptions) (*ResponseMessageGenerate, 
 		Options:    opts.Options,
 	}
 
+	// Promote Options to top-level fields for OpenAI-compatible backends
+	if opts.Options != nil {
+		if opts.Options.MaxTokens > 0 {
+			req.MaxTokens = opts.Options.MaxTokens
+		}
+		if opts.Options.Temperature != 0 {
+			req.Temperature = &opts.Options.Temperature
+		}
+		if opts.Options.TopP != 0 {
+			req.TopP = &opts.Options.TopP
+		}
+	}
+
+	if opts.Stream {
+		return nil, fmt.Errorf("streaming not yet supported for OpenAI-compatible endpoints")
+	}
+
 	// If ExtraBody is set, merge its keys into the request as top-level fields
 	var body any = req
 	if len(opts.ExtraBody) > 0 {
@@ -126,11 +148,6 @@ func (c *Client) ChatCompletion(opts RequestOptions) (*ResponseMessageGenerate, 
 		return nil, err
 	}
 	defer resp.Body.Close()
-
-	// Handle streaming if requested
-	if opts.Stream {
-		return nil, fmt.Errorf("not doing streaming")
-	}
 
 	// Handle regular response
 	decoder := json.NewDecoder(resp.Body)
