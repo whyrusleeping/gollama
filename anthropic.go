@@ -256,7 +256,9 @@ func buildAnthropicRequest(opts RequestOptions) (*anthropicRequest, error) {
 			}
 			for j, tc := range msg.ToolCalls {
 				var input any
-				json.Unmarshal([]byte(tc.Function.Arguments), &input)
+				if err := json.Unmarshal([]byte(tc.Function.Arguments), &input); err != nil {
+					return nil, fmt.Errorf("error parsing tool call arguments for %q: %w", tc.Function.Name, err)
+				}
 				toolUseBlock := anthropicToolUseBlock{
 					Type:  "tool_use",
 					ID:    tc.ID,
@@ -419,13 +421,7 @@ func (c *Client) ChatCompletionAnthropic(opts RequestOptions) (*ResponseMessageG
 	}
 
 	// Send request to Anthropic's native endpoint
-	// Note: if baseURL already ends with /v1, we just use /messages
-	endpoint := "/v1/messages"
-	if strings.HasSuffix(c.baseURL, "/v1") {
-		endpoint = "/messages"
-	}
-
-	resp, err := c.prepareRequest(req, endpoint)
+	resp, err := c.prepareRequest(req, c.anthropicEndpoint("/messages"))
 	if err != nil {
 		return nil, err
 	}
@@ -434,7 +430,12 @@ func (c *Client) ChatCompletionAnthropic(opts RequestOptions) (*ResponseMessageG
 	return parseAnthropicResponse(resp)
 }
 
-// IsAnthropicAPI checks if the client is configured to use Anthropic's API
+// IsAnthropicAPI checks if the client is configured to use Anthropic's API.
+// Returns true if SetAnthropicMode(true) was called, or if the base URL
+// contains "anthropic.com" (auto-detection fallback).
 func (c *Client) IsAnthropicAPI() bool {
+	if c.anthropicMode != nil {
+		return *c.anthropicMode
+	}
 	return strings.Contains(c.baseURL, "anthropic.com")
 }
