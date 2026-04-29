@@ -317,10 +317,17 @@ func buildAnthropicRequest(opts RequestOptions) (*anthropicRequest, error) {
 				if err := json.Unmarshal([]byte(tc.Function.Arguments), &input); err != nil {
 					return nil, fmt.Errorf("error parsing tool call arguments for %q: %w", tc.Function.Name, err)
 				}
+				// Defensive: truncate tool names that exceed the API limit.
+				// Models occasionally hallucinate malformed tool calls that
+				// stuff long strings into the name field.
+				name := tc.Function.Name
+				if len(name) > 64 {
+					name = name[:64]
+				}
 				toolUseBlock := anthropicToolUseBlock{
 					Type:  "tool_use",
 					ID:    tc.ID,
-					Name:  tc.Function.Name,
+					Name:  name,
 					Input: input,
 				}
 				// Cache the last tool_use block of the last assistant message

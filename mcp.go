@@ -12,16 +12,18 @@ import (
 // Optionally carries images and/or documents (e.g. PDFs) for backends that
 // support them in tool result blocks (currently Anthropic native API only).
 type ToolResult struct {
-	Content   string
-	Images    []string   // optional base64 encoded images
-	Documents []Document // optional documents (e.g. PDFs)
-	IsError   bool       // true if this result represents an error
+	Content    string
+	Images     []string   // optional base64 encoded images
+	Documents  []Document // optional documents (e.g. PDFs)
+	IsError    bool       // true if this result represents an error
+	Structured any        // optional structured form consumed by codemode/bridge paths; agent-loop path ignores it
 }
 
 type Tool struct {
 	Name        string
 	Description string
 	Params      any
+	OutputType  any // optional Go value whose reflected type describes the structured response shape (used by codemode typegen)
 
 	Call func(context.Context, any) (*ToolResult, error)
 }

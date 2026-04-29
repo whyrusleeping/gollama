@@ -3,6 +3,7 @@ package gollama
 import (
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -26,7 +27,7 @@ func TestBedrockChatCompletion(t *testing.T) {
 	client := getBedrockClient(t)
 
 	resp, err := client.ChatCompletion(RequestOptions{
-		Model: BedrockOpus46,
+		Model: BedrockHaiku45,
 		Messages: []Message{
 			{Role: "user", Content: "Say hello in exactly three words."},
 		},
@@ -126,4 +127,67 @@ func TestBedrockWithToolUse(t *testing.T) {
 	if tc.Function.Name != "get_weather" {
 		t.Errorf("unexpected tool name: %s", tc.Function.Name)
 	}
+}
+
+func TestBedrockCaching(t *testing.T) {
+	client := getBedrockClient(t)
+
+	// System prompt needs to be at least 1024 tokens for caching to kick in.
+	// Pad it well past that threshold.
+	systemPrompt := "You are a helpful assistant that answers questions concisely.\n\n" +
+		strings.Repeat("Remember: always be concise, accurate, and helpful in your responses. ", 200)
+
+	messages := []Message{
+		{Role: "user", Content: "What is the capital of France?"},
+	}
+
+	// First request — should create the cache entry
+	fmt.Println("=== Request 1: expecting cache creation ===")
+	resp1, err := client.ChatCompletion(RequestOptions{
+		Model:    BedrockSonnet46,
+		System:   systemPrompt,
+		Messages: messages,
+	})
+	if err != nil {
+		t.Fatalf("First request failed: %v", err)
+	}
+
+	fmt.Printf("Response: %s\n", resp1.Choices[0].Message.Content)
+	fmt.Printf("Usage: input=%d output=%d cache_create=%d cache_read=%d\n",
+		resp1.Usage.PromptTokens, resp1.Usage.CompletionTokens,
+		resp1.Usage.CacheCreationInputTokens, resp1.Usage.CacheReadInputTokens)
+
+	if resp1.Usage.CacheCreationInputTokens == 0 {
+		t.Error("expected cache creation tokens on first request")
+	}
+
+	// Add the response to conversation history
+	messages = append(messages, resp1.Choices[0].Message)
+	messages = append(messages, Message{
+		Role:    "user",
+		Content: "What about Germany?",
+	})
+
+	// Second request — same system prompt prefix, should get cache hits
+	fmt.Println("\n=== Request 2: expecting cache read ===")
+	resp2, err := client.ChatCompletion(RequestOptions{
+		Model:    BedrockSonnet46,
+		System:   systemPrompt,
+		Messages: messages,
+	})
+	if err != nil {
+		t.Fatalf("Second request failed: %v", err)
+	}
+
+	fmt.Printf("Response: %s\n", resp2.Choices[0].Message.Content)
+	fmt.Printf("Usage: input=%d output=%d cache_create=%d cache_read=%d\n",
+		resp2.Usage.PromptTokens, resp2.Usage.CompletionTokens,
+		resp2.Usage.CacheCreationInputTokens, resp2.Usage.CacheReadInputTokens)
+
+	if resp2.Usage.CacheReadInputTokens == 0 {
+		t.Error("expected cache read tokens on second request")
+	}
+
+	fmt.Printf("\n=== Summary ===\n")
+	fmt.Printf("Cached tokens read on request 2: %d\n", resp2.Usage.CacheReadInputTokens)
 }
