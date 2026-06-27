@@ -10,11 +10,38 @@ import (
 // Anthropic native API types
 
 type anthropicRequest struct {
-	Model     string                 `json:"model"`
-	MaxTokens int                    `json:"max_tokens"`
-	System    []anthropicSystemBlock `json:"system,omitempty"`
-	Messages  []anthropicMessage     `json:"messages"`
-	Tools     []anthropicTool        `json:"tools,omitempty"`
+	Model        string                 `json:"model"`
+	MaxTokens    int                    `json:"max_tokens"`
+	System       []anthropicSystemBlock `json:"system,omitempty"`
+	Messages     []anthropicMessage     `json:"messages"`
+	Tools        []anthropicTool        `json:"tools,omitempty"`
+	Thinking     *anthropicThinking     `json:"thinking,omitempty"`
+	OutputConfig *anthropicOutputConfig `json:"output_config,omitempty"`
+}
+
+// anthropicThinking configures extended/adaptive reasoning. Type is "adaptive"
+// (the model decides depth) or "disabled". Display selects "summarized" or
+// "omitted" reasoning text in the response. budget_tokens is intentionally not
+// modeled — it is removed on current models; adaptive + effort is the surface.
+type anthropicThinking struct {
+	Type    string `json:"type"`
+	Display string `json:"display,omitempty"`
+}
+
+// anthropicOutputConfig carries output-level controls; effort tunes reasoning
+// depth and overall token spend ("low".."max").
+type anthropicOutputConfig struct {
+	Effort string `json:"effort,omitempty"`
+}
+
+// anthropicThinkingReqBlock is a thinking block echoed back into an assistant turn
+// on a follow-up request. Anthropic verifies the signature, so it must be sent
+// unchanged. Redacted blocks use Type "redacted_thinking" + Data.
+type anthropicThinkingReqBlock struct {
+	Type      string `json:"type"`
+	Thinking  string `json:"thinking,omitempty"`
+	Signature string `json:"signature,omitempty"`
+	Data      string `json:"data,omitempty"`
 }
 
 type anthropicSystemBlock struct {
@@ -62,7 +89,7 @@ type anthropicImageSource struct {
 	Type      string `json:"type"`                 // "base64" or "url"
 	MediaType string `json:"media_type,omitempty"` // required for base64
 	Data      string `json:"data,omitempty"`       // base64 data
-	URL       string `json:"url,omitempty"`         // URL source
+	URL       string `json:"url,omitempty"`        // URL source
 }
 
 type anthropicDocumentBlock struct {
@@ -75,7 +102,7 @@ type anthropicDocumentSource struct {
 	Type      string `json:"type"`                 // "base64" or "url"
 	MediaType string `json:"media_type,omitempty"` // required for base64 (e.g. "application/pdf")
 	Data      string `json:"data,omitempty"`       // base64 data
-	URL       string `json:"url,omitempty"`         // URL source
+	URL       string `json:"url,omitempty"`        // URL source
 }
 
 // buildAnthropicDocumentBlock constructs a document block from a Document,
@@ -123,11 +150,14 @@ type anthropicResponse struct {
 }
 
 type anthropicContentBlock struct {
-	Type  string `json:"type"`
-	Text  string `json:"text,omitempty"`
-	ID    string `json:"id,omitempty"`
-	Name  string `json:"name,omitempty"`
-	Input any    `json:"input,omitempty"`
+	Type      string `json:"type"`
+	Text      string `json:"text,omitempty"`
+	ID        string `json:"id,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Input     any    `json:"input,omitempty"`
+	Thinking  string `json:"thinking,omitempty"`  // "thinking" blocks
+	Signature string `json:"signature,omitempty"` // "thinking" blocks
+	Data      string `json:"data,omitempty"`      // "redacted_thinking" blocks
 }
 
 type anthropicUsage struct {
@@ -147,6 +177,19 @@ func buildAnthropicRequest(opts RequestOptions) (*anthropicRequest, error) {
 
 	if opts.Options != nil && opts.Options.MaxTokens > 0 {
 		req.MaxTokens = opts.Options.MaxTokens
+	}
+
+	// Extended/adaptive thinking + effort (Anthropic-native). Other backends
+	// ignore opts.Thinking/Effort; they are only translated here.
+	if opts.Thinking != "" {
+		th := &anthropicThinking{Type: opts.Thinking}
+		if opts.ThinkingDisplay != "" {
+			th.Display = opts.ThinkingDisplay
+		}
+		req.Thinking = th
+	}
+	if opts.Effort != "" {
+		req.OutputConfig = &anthropicOutputConfig{Effort: opts.Effort}
 	}
 
 	// Convert system prompt to Anthropic format with caching.
@@ -300,6 +343,24 @@ func buildAnthropicRequest(opts RequestOptions) (*anthropicRequest, error) {
 			// Cache the last assistant message to avoid re-processing large tool_use blocks
 			isLastAssistant := i == lastAssistantIdx
 			hasToolCalls := len(msg.ToolCalls) > 0
+
+			// Thinking blocks must come FIRST in the assistant turn and be replayed
+			// verbatim — Anthropic verifies their signatures when continuing a
+			// tool-using conversation on the same model.
+			for _, tb := range msg.ThinkingBlocks {
+				if tb.Redacted != "" {
+					antMsg.Content = append(antMsg.Content, anthropicThinkingReqBlock{
+						Type: "redacted_thinking",
+						Data: tb.Redacted,
+					})
+				} else {
+					antMsg.Content = append(antMsg.Content, anthropicThinkingReqBlock{
+						Type:      "thinking",
+						Thinking:  tb.Thinking,
+						Signature: tb.Signature,
+					})
+				}
+			}
 
 			if msg.Content != "" {
 				textBlock := anthropicTextBlock{
@@ -466,10 +527,20 @@ func parseAnthropicResponse(resp *http.Response) (*ResponseMessageGenerate, erro
 
 	var toolCalls []ToolCall
 	var textContent strings.Builder
+	var thinkingText strings.Builder
+	var thinkingBlocks []ThinkingBlock
 	for _, block := range antResp.Content {
 		switch block.Type {
 		case "text":
 			textContent.WriteString(block.Text)
+		case "thinking":
+			thinkingText.WriteString(block.Thinking)
+			thinkingBlocks = append(thinkingBlocks, ThinkingBlock{
+				Thinking:  block.Thinking,
+				Signature: block.Signature,
+			})
+		case "redacted_thinking":
+			thinkingBlocks = append(thinkingBlocks, ThinkingBlock{Redacted: block.Data})
 		case "tool_use":
 			inputJSON, _ := json.Marshal(block.Input)
 			toolCalls = append(toolCalls, ToolCall{
@@ -485,6 +556,8 @@ func parseAnthropicResponse(resp *http.Response) (*ResponseMessageGenerate, erro
 
 	result.Choices[0].Message.Content = textContent.String()
 	result.Choices[0].Message.ToolCalls = toolCalls
+	result.Choices[0].Message.Thinking = thinkingText.String()
+	result.Choices[0].Message.ThinkingBlocks = thinkingBlocks
 
 	return result, nil
 }
@@ -495,6 +568,12 @@ func (c *Client) ChatCompletionAnthropic(opts RequestOptions) (*ResponseMessageG
 	req, err := buildAnthropicRequest(opts)
 	if err != nil {
 		return nil, err
+	}
+
+	// The native Anthropic API requires an anthropic-version header. Default it
+	// here so callers don't have to; a caller that set one explicitly wins.
+	if _, ok := c.headers["anthropic-version"]; !ok {
+		c.SetHeader("anthropic-version", "2023-06-01")
 	}
 
 	// Send request to Anthropic's native endpoint

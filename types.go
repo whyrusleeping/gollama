@@ -26,9 +26,20 @@ type RequestOptions struct {
 	Messages     []Message     `json:"messages,omitempty"`
 	Options      *Options      `json:"options,omitempty"`
 	Think        bool          `json:"think,omitempty"`
-	Tools        []ToolParam   `json:"tools,omitempty"`
-	ToolChoice   string        `json:"tool_choice,omitempty"`
-	ExtraBody    map[string]any `json:"-"` // Extra top-level fields merged into the request body (OpenAI path only)
+	// Thinking, set to "adaptive", enables Anthropic extended/adaptive reasoning
+	// (distinct from Think, the Ollama on/off flag); empty leaves it off. Ignored
+	// by non-Anthropic backends.
+	Thinking string `json:"-"`
+	// Effort controls reasoning depth and overall token spend on backends that
+	// support it (Anthropic output_config.effort): "low" | "medium" | "high" |
+	// "xhigh" | "max". Empty uses the provider default.
+	Effort string `json:"-"`
+	// ThinkingDisplay selects whether thinking summaries are returned
+	// ("summarized") or omitted (the provider default). Anthropic only.
+	ThinkingDisplay string         `json:"-"`
+	Tools           []ToolParam    `json:"tools,omitempty"`
+	ToolChoice      string         `json:"tool_choice,omitempty"`
+	ExtraBody       map[string]any `json:"-"` // Extra top-level fields merged into the request body (OpenAI path only)
 }
 
 // Options contains model parameters for controlling generation behavior.
@@ -71,16 +82,32 @@ type Document struct {
 	Title     string // optional title shown to the model
 }
 
+// ThinkingBlock is a single provider reasoning block captured from a response so
+// it can be replayed verbatim on a later turn. For a normal block, Thinking holds
+// the summary text (empty when display is "omitted") and Signature the
+// verification signature; for a redacted block, Redacted holds the opaque data
+// payload and the other fields are empty. Anthropic verifies signatures, so these
+// must be echoed back unchanged when continuing on the same model.
+type ThinkingBlock struct {
+	Thinking  string `json:"thinking,omitempty"`
+	Signature string `json:"signature,omitempty"`
+	Redacted  string `json:"data,omitempty"`
+}
+
 // Message represents a chat message with support for text, images, and tool calls.
 type Message struct {
-	Role             string     `json:"role"`
-	Content          string     `json:"content"`
-	Thinking         string     `json:"thinking,omitempty"`
-	ReasoningContent string     `json:"reasoning_content,omitempty"`
-	Images           []string   `json:"images,omitempty"`
-	Documents        []Document `json:"-"` // Anthropic-only; attached as document blocks
-	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID       string     `json:"tool_call_id,omitempty"`
+	Role             string `json:"role"`
+	Content          string `json:"content"`
+	Thinking         string `json:"thinking,omitempty"`
+	ReasoningContent string `json:"reasoning_content,omitempty"`
+	// ThinkingBlocks carries provider reasoning blocks (Anthropic) verbatim so an
+	// assistant turn can be replayed with its thinking intact. Not serialized here;
+	// the Anthropic request builder emits them as leading content blocks.
+	ThinkingBlocks []ThinkingBlock `json:"-"`
+	Images         []string        `json:"images,omitempty"`
+	Documents      []Document      `json:"-"` // Anthropic-only; attached as document blocks
+	ToolCalls      []ToolCall      `json:"tool_calls,omitempty"`
+	ToolCallID     string          `json:"tool_call_id,omitempty"`
 	// MultiContent allows arbitrary interleaving of text and image content blocks.
 	// When set, Content and Images fields are ignored for this message.
 	MultiContent []ContentBlock `json:"-"`
