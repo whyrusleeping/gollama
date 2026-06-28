@@ -264,12 +264,37 @@ type ResponseMessageGenerate struct {
 	Done      bool        `json:"done"`
 	Error     string      `json:"error,omitempty"`
 	Usage     Usage       `json:"usage"`
+
+	// StopReason is the normalized reason the model stopped generating. It is
+	// provider-specific in spelling (Anthropic: "end_turn"/"max_tokens"/
+	// "tool_use"/"stop_sequence"; OpenAI: "stop"/"length"/"tool_calls"). Callers
+	// that only need to know whether the turn was cut short should use Truncated.
+	StopReason string `json:"stop_reason,omitempty"`
+}
+
+// Truncated reports whether the turn was cut short because it hit the output
+// token cap (Anthropic "max_tokens", OpenAI "length") rather than completing
+// naturally. A truncated turn may be missing the tool call or final text the
+// model intended to emit, so callers should not treat it as a clean finish.
+func (r *ResponseMessageGenerate) Truncated() bool {
+	switch r.StopReason {
+	case "max_tokens", "length":
+		return true
+	}
+	if len(r.Choices) > 0 {
+		switch r.Choices[0].FinishReason {
+		case "max_tokens", "length":
+			return true
+		}
+	}
+	return false
 }
 
 // GenChoice represents a single completion choice in OpenAI-compatible responses.
 type GenChoice struct {
-	Index   int     `json:"index"`
-	Message Message `json:"message"`
+	Index        int     `json:"index"`
+	Message      Message `json:"message"`
+	FinishReason string  `json:"finish_reason,omitempty"`
 }
 
 // Usage represents token usage information in API responses.

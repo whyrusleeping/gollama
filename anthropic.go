@@ -507,7 +507,8 @@ func parseAnthropicResponse(resp *http.Response) (*ResponseMessageGenerate, erro
 	}
 
 	result := &ResponseMessageGenerate{
-		Model: antResp.Model,
+		Model:      antResp.Model,
+		StopReason: antResp.StopReason,
 		Usage: Usage{
 			PromptTokens:             antResp.Usage.InputTokens,
 			CompletionTokens:         antResp.Usage.OutputTokens,
