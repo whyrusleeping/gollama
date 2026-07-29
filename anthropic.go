@@ -39,10 +39,16 @@ type anthropicOutputConfig struct {
 // on a follow-up request. Anthropic verifies the signature, so it must be sent
 // unchanged. Redacted blocks use Type "redacted_thinking" + Data.
 type anthropicThinkingReqBlock struct {
-	Type      string `json:"type"`
-	Thinking  string `json:"thinking,omitempty"`
-	Signature string `json:"signature,omitempty"`
-	Data      string `json:"data,omitempty"`
+	Type string `json:"type"`
+	// Thinking is a pointer so an empty-but-present value survives. When display
+	// is "omitted" (the default on current models) the API returns a signed block
+	// with no summary text, yet still requires the field on replay: a plain string
+	// with omitempty drops it and the request fails with
+	// "thinking.thinking: Field required". nil on redacted blocks, which must not
+	// carry the field at all.
+	Thinking  *string `json:"thinking,omitempty"`
+	Signature string  `json:"signature,omitempty"`
+	Data      string  `json:"data,omitempty"`
 }
 
 type anthropicSystemBlock struct {
@@ -166,6 +172,13 @@ type anthropicUsage struct {
 	OutputTokens             int `json:"output_tokens"`
 	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+	// OutputTokensDetails breaks output_tokens down; thinking_tokens is the
+	// reasoning portion and is already included in OutputTokens.
+	OutputTokensDetails *anthropicOutputTokensDetails `json:"output_tokens_details"`
+}
+
+type anthropicOutputTokensDetails struct {
+	ThinkingTokens int `json:"thinking_tokens"`
 }
 
 // buildAnthropicRequest converts generic RequestOptions into an Anthropic-native request struct.
@@ -357,9 +370,10 @@ func buildAnthropicRequest(opts RequestOptions) (*anthropicRequest, error) {
 						Data: tb.Redacted,
 					})
 				} else {
+					thinking := tb.Thinking
 					antMsg.Content = append(antMsg.Content, anthropicThinkingReqBlock{
 						Type:      "thinking",
-						Thinking:  tb.Thinking,
+						Thinking:  &thinking,
 						Signature: tb.Signature,
 					})
 				}
@@ -519,6 +533,10 @@ func parseAnthropicResponse(resp *http.Response) (*ResponseMessageGenerate, erro
 // that a streamed turn's final message is byte-equivalent to the non-streaming
 // shape for the same response.
 func convertAnthropicResponse(antResp *anthropicResponse) *ResponseMessageGenerate {
+	var thinkingTokens int
+	if antResp.Usage.OutputTokensDetails != nil {
+		thinkingTokens = antResp.Usage.OutputTokensDetails.ThinkingTokens
+	}
 	result := &ResponseMessageGenerate{
 		Model:      antResp.Model,
 		StopReason: antResp.StopReason,
@@ -528,6 +546,7 @@ func convertAnthropicResponse(antResp *anthropicResponse) *ResponseMessageGenera
 			TotalTokens:              antResp.Usage.InputTokens + antResp.Usage.OutputTokens,
 			CacheCreationInputTokens: antResp.Usage.CacheCreationInputTokens,
 			CacheReadInputTokens:     antResp.Usage.CacheReadInputTokens,
+			ThinkingTokens:           thinkingTokens,
 		},
 		Choices: []GenChoice{
 			{

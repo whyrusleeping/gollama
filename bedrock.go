@@ -21,6 +21,8 @@ const (
 	BedrockHaiku45  = "global.anthropic.claude-haiku-4-5-20251001-v1:0"
 	BedrockSonnet46 = "global.anthropic.claude-sonnet-4-6"
 	BedrockOpus46   = "global.anthropic.claude-opus-4-6-v1"
+	// BedrockOpus5 carries no version suffix, unlike BedrockOpus46.
+	BedrockOpus5 = "global.anthropic.claude-opus-5"
 )
 
 // BedrockConfig holds AWS credentials and region for Bedrock API access.
@@ -39,6 +41,12 @@ type bedrockRequest struct {
 	System           []anthropicSystemBlock `json:"system,omitempty"`
 	Messages         []anthropicMessage     `json:"messages"`
 	Tools            []anthropicTool        `json:"tools,omitempty"`
+	// Thinking and OutputConfig mirror the Anthropic request fields. Bedrock's
+	// InvokeModel body is the Anthropic Messages body minus `model`, so these are
+	// accepted verbatim; without them, RequestOptions.Thinking / Effort were
+	// silently dropped on the Bedrock path while working on Anthropic direct.
+	Thinking     *anthropicThinking     `json:"thinking,omitempty"`
+	OutputConfig *anthropicOutputConfig `json:"output_config,omitempty"`
 }
 
 // NewBedrockClient creates a new client configured for AWS Bedrock.
@@ -71,21 +79,32 @@ func (c *Client) IsBedrockAPI() bool {
 	return c.bedrock != nil
 }
 
-// ChatCompletionBedrock sends a request using AWS Bedrock's invoke model endpoint.
-// It reuses the Anthropic request/response format, signing requests with AWS Signature V4.
-func (c *Client) ChatCompletionBedrock(opts RequestOptions) (*ResponseMessageGenerate, error) {
+// buildBedrockRequest converts RequestOptions into the Bedrock InvokeModel body:
+// the Anthropic Messages body with `model` removed (it lives in the URL path) and
+// `anthropic_version` added. Everything else — including thinking, output_config,
+// and the replayed thinking blocks inside messages — is carried over verbatim.
+func buildBedrockRequest(opts RequestOptions) (bedrockRequest, error) {
 	antReq, err := buildAnthropicRequest(opts)
 	if err != nil {
-		return nil, fmt.Errorf("error building request: %w", err)
+		return bedrockRequest{}, fmt.Errorf("error building request: %w", err)
 	}
-
-	// Convert to Bedrock request (no model field, add anthropic_version)
-	req := bedrockRequest{
+	return bedrockRequest{
 		AnthropicVersion: "bedrock-2023-05-31",
 		MaxTokens:        antReq.MaxTokens,
 		System:           antReq.System,
 		Messages:         antReq.Messages,
 		Tools:            antReq.Tools,
+		Thinking:         antReq.Thinking,
+		OutputConfig:     antReq.OutputConfig,
+	}, nil
+}
+
+// ChatCompletionBedrock sends a request using AWS Bedrock's invoke model endpoint.
+// It reuses the Anthropic request/response format, signing requests with AWS Signature V4.
+func (c *Client) ChatCompletionBedrock(opts RequestOptions) (*ResponseMessageGenerate, error) {
+	req, err := buildBedrockRequest(opts)
+	if err != nil {
+		return nil, err
 	}
 
 	body, err := json.Marshal(req)

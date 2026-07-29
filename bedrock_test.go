@@ -1,11 +1,115 @@
 package gollama
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 	"testing"
 )
+
+// TestBedrockRequestForwardsThinkingAndEffort verifies that the Bedrock
+// InvokeModel body carries the same reasoning controls as the Anthropic direct
+// body. Before these fields existed on bedrockRequest, RequestOptions.Thinking
+// and .Effort were silently dropped on the Bedrock path.
+func TestBedrockRequestForwardsThinkingAndEffort(t *testing.T) {
+	req, err := buildBedrockRequest(RequestOptions{
+		Model:           BedrockOpus5,
+		Messages:        []Message{{Role: "user", Content: "hi"}},
+		Thinking:        "adaptive",
+		ThinkingDisplay: "summarized",
+		Effort:          "high",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req.Thinking == nil || req.Thinking.Type != "adaptive" || req.Thinking.Display != "summarized" {
+		t.Fatalf("thinking = %+v, want adaptive/summarized", req.Thinking)
+	}
+	if req.OutputConfig == nil || req.OutputConfig.Effort != "high" {
+		t.Fatalf("output_config = %+v, want effort=high", req.OutputConfig)
+	}
+
+	b, err := json.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(b)
+	// budget_tokens is not modeled at all; current models reject it.
+	if strings.Contains(body, "budget_tokens") {
+		t.Fatalf("request must not contain budget_tokens: %s", body)
+	}
+	if !strings.Contains(body, `"thinking":{"type":"adaptive","display":"summarized"}`) {
+		t.Fatalf("serialized request missing thinking: %s", body)
+	}
+	if !strings.Contains(body, `"output_config":{"effort":"high"}`) {
+		t.Fatalf("serialized request missing output_config: %s", body)
+	}
+	// The Bedrock body must never carry a model field; the model is in the URL.
+	if strings.Contains(body, `"model"`) {
+		t.Fatalf("bedrock request must not contain a model field: %s", body)
+	}
+
+	// Unset by default: no thinking or output_config keys at all.
+	req2, err := buildBedrockRequest(RequestOptions{
+		Model:    BedrockOpus5,
+		Messages: []Message{{Role: "user", Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req2.Thinking != nil || req2.OutputConfig != nil {
+		t.Fatalf("expected no thinking/output_config by default; got %+v / %+v", req2.Thinking, req2.OutputConfig)
+	}
+	b2, err := json.Marshal(req2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b2), "thinking") || strings.Contains(string(b2), "output_config") {
+		t.Fatalf("default bedrock request should omit reasoning keys: %s", b2)
+	}
+}
+
+// TestBedrockRequestReplaysThinkingBlocks verifies that thinking blocks captured
+// from a previous assistant turn ride along inside messages on the Bedrock path
+// too, since it delegates to the shared Anthropic request builder.
+func TestBedrockRequestReplaysThinkingBlocks(t *testing.T) {
+	req, err := buildBedrockRequest(RequestOptions{
+		Model: BedrockOpus5,
+		Messages: []Message{
+			{Role: "user", Content: "what is the weather"},
+			{
+				Role: "assistant",
+				ThinkingBlocks: []ThinkingBlock{
+					{Thinking: "let me check", Signature: "sig-abc"},
+					{Redacted: "opaque-payload"},
+				},
+				ToolCalls: []ToolCall{{
+					ID:       "call_1",
+					Function: ToolCallFunction{Name: "get_weather", Arguments: `{"city":"SF"}`},
+				}},
+			},
+			{Role: "tool", ToolCallID: "call_1", Content: "sunny"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := json.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(b)
+	for _, want := range []string{`"signature":"sig-abc"`, `"redacted_thinking"`, `"data":"opaque-payload"`} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("bedrock body missing %s: %s", want, body)
+		}
+	}
+	// Thinking must precede tool_use in the assistant content array.
+	if strings.Index(body, `"thinking"`) > strings.Index(body, `"tool_use"`) {
+		t.Fatalf("thinking blocks must precede tool_use: %s", body)
+	}
+}
 
 func getBedrockClient(t *testing.T) *Client {
 	accessKey := os.Getenv("AWS_ACCESS_KEY_ID")

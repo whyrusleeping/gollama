@@ -330,6 +330,11 @@ type Usage struct {
 	// Anthropic-specific cache fields
 	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
 	CacheReadInputTokens     int `json:"cache_read_input_tokens,omitempty"`
+	// ThinkingTokens is the portion of CompletionTokens spent on reasoning, when
+	// the provider reports it (Anthropic: usage.output_tokens_details.thinking_tokens).
+	// Observability only — CompletionTokens remains the authoritative billed
+	// output total and already includes these tokens, so do not add them.
+	ThinkingTokens int `json:"thinking_tokens,omitempty"`
 }
 
 // PromptTokensDetails provides detailed information about prompt token usage.
