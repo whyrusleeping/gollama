@@ -51,6 +51,13 @@ func (c *Client) SetMaxRetries(n int) {
 	c.maxRetries = &n
 }
 
+// SetTimeout configures the maximum duration of an HTTP request. A zero
+// duration disables the client-wide timeout so the request context is the
+// authoritative cancellation and deadline source.
+func (c *Client) SetTimeout(timeout time.Duration) {
+	c.httpClient.Timeout = timeout
+}
+
 // effectiveMaxRetries returns the configured transport retry count, or the
 // package default when SetMaxRetries has not been called.
 func (c *Client) effectiveMaxRetries() int {
