@@ -131,7 +131,13 @@ func (c *Client) buildOpenAIRequest(opts RequestOptions) (any, error) {
 		ToolChoice: opts.ToolChoice,
 		Messages:   messages,
 		Stream:     opts.Stream,
-		Options:    opts.Options,
+	}
+	// Only Ollama understands the nested options object; strict
+	// OpenAI-compatible servers (e.g. Fireworks) reject unknown fields, so for
+	// everything else the generation parameters ride solely as the promoted
+	// top-level fields below.
+	if c.Backend() == BackendOllama {
+		req.Options = opts.Options
 	}
 	if opts.Stream {
 		req.StreamOptions = &openaiStreamOptions{IncludeUsage: true}
