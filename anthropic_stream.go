@@ -102,6 +102,7 @@ func assembleAnthropicStream(body io.Reader, onDelta func(text string)) (*anthro
 	toolJSON := map[int]*strings.Builder{}
 	// Running concatenation of all text-block content, for onDelta snapshots.
 	var textAccum strings.Builder
+	var completed bool
 
 	blockAt := func(idx int) *anthropicContentBlock {
 		b, ok := byIndex[idx]
@@ -199,7 +200,7 @@ func assembleAnthropicStream(body io.Reader, onDelta func(text string)) (*anthro
 						assembled.Usage.OutputTokens = ev.Usage.OutputTokens
 					}
 				case "message_stop":
-					// End of stream marker; the io.EOF below will also break.
+					completed = true
 				case "error":
 					if ev.Error != nil {
 						return nil, fmt.Errorf("anthropic stream error (%s): %s", ev.Error.Type, ev.Error.Message)
@@ -219,6 +220,10 @@ func assembleAnthropicStream(body io.Reader, onDelta func(text string)) (*anthro
 			}
 			return nil, fmt.Errorf("error reading Anthropic stream: %w", err)
 		}
+	}
+
+	if !completed {
+		return nil, fmt.Errorf("anthropic stream ended before message_stop: %w", io.ErrUnexpectedEOF)
 	}
 
 	// Assemble content blocks in index order.

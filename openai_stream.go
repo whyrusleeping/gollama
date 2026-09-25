@@ -99,6 +99,7 @@ func assembleOpenAIStream(body io.Reader, onDelta func(text string)) (*ResponseM
 		choiceIndex      int
 		usage            Usage
 		haveChoice       bool
+		completed        bool
 		contentAccum     strings.Builder
 		thinkingAccum    strings.Builder
 		reasoningAccum   strings.Builder
@@ -118,6 +119,7 @@ func assembleOpenAIStream(body io.Reader, onDelta func(text string)) (*ResponseM
 				if data == "" {
 					// event separator or comment; nothing to decode.
 				} else if data == "[DONE]" {
+					completed = true
 					break
 				} else {
 					var chunk openaiStreamChunk
@@ -141,6 +143,7 @@ func assembleOpenAIStream(body io.Reader, onDelta func(text string)) (*ResponseM
 						choiceIndex = ch.Index
 						if ch.FinishReason != "" {
 							finishReason = ch.FinishReason
+							completed = true
 						}
 						d := ch.Delta
 						if d.Role != "" {
@@ -194,6 +197,10 @@ func assembleOpenAIStream(body io.Reader, onDelta func(text string)) (*ResponseM
 			}
 			return nil, fmt.Errorf("error reading OpenAI stream: %w", rerr)
 		}
+	}
+
+	if !completed {
+		return nil, fmt.Errorf("openai stream ended before completion: %w", io.ErrUnexpectedEOF)
 	}
 
 	// If the stream produced no choices at all, still return a well-formed
