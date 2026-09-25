@@ -14,6 +14,9 @@ import (
 const (
 	defaultMaxRetries = 5
 	baseDelay         = 5 * time.Second
+	// maxRetryAfter bounds how long the built-in retry ring will honour a
+	// server-provided Retry-After; longer hints fall back to exponential backoff.
+	maxRetryAfter = 5 * time.Minute
 )
 
 // isRetryableStatus returns true for status codes that should trigger a retry.
@@ -51,8 +54,12 @@ func (c *Client) doWithRetry(ctx context.Context, newReq func() (*http.Request, 
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 
+		apiErr := newAPIError(resp, bodyBytes)
 		if isRetryableStatus(resp.StatusCode) && attempt < maxRetries {
 			delay := baseDelay * time.Duration(1<<attempt) // exponential: 5s, 10s, 20s, 40s, 80s
+			if ra, ok := apiErr.RetryAfter(time.Now()); ok && ra <= maxRetryAfter {
+				delay = ra
+			}
 			log.Printf("API returned %d, retrying in %v (attempt %d/%d)", resp.StatusCode, delay, attempt+1, maxRetries)
 			timer := time.NewTimer(delay)
 			select {
@@ -64,7 +71,7 @@ func (c *Client) doWithRetry(ctx context.Context, newReq func() (*http.Request, 
 			continue
 		}
 
-		return nil, fmt.Errorf("API returned non-200 status code %d: %s", resp.StatusCode, string(bodyBytes))
+		return nil, apiErr
 	}
 
 	return nil, fmt.Errorf("max retries exceeded")

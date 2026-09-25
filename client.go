@@ -8,6 +8,10 @@ import (
 	"time"
 )
 
+// defaultHTTPTimeout is the total-request timeout of the default HTTP client.
+// Note that it includes the time spent reading a streamed response body.
+const defaultHTTPTimeout = 300 * time.Second
+
 // Client represents a multi-provider LLM API client.
 // It can interact with Ollama, OpenAI-compatible, Anthropic, and AWS Bedrock endpoints
 // depending on the baseURL and methods used.
@@ -26,10 +30,23 @@ func NewClient(baseURL string) *Client {
 	return &Client{
 		baseURL: baseURL,
 		httpClient: &http.Client{
-			Timeout: 300 * time.Second,
+			Timeout: defaultHTTPTimeout,
 		},
 		headers: make(map[string]string),
 	}
+}
+
+// SetHTTPClient replaces the HTTP client used for all requests. Use it to
+// control transport policy — for example to drop the default 300-second total
+// timeout (which also bounds streamed response bodies) in favour of caller
+// context deadlines and a stream-inactivity watchdog. A nil client restores the
+// default. The client is used as-is; configured request headers are still
+// applied per request.
+func (c *Client) SetHTTPClient(hc *http.Client) {
+	if hc == nil {
+		hc = &http.Client{Timeout: defaultHTTPTimeout}
+	}
+	c.httpClient = hc
 }
 
 // SetAnthropicMode explicitly enables or disables Anthropic native API mode.
