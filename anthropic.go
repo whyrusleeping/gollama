@@ -273,6 +273,15 @@ func buildAnthropicRequest(opts RequestOptions) (*anthropicRequest, error) {
 		}
 	}
 
+	// Index of the source message that produced (or was merged into) the message
+	// currently at the end of req.Messages. Tool results are merged into a single
+	// user message only when consecutive, and "consecutive" must mean adjacent in
+	// opts.Messages — not merely "the last thing we emitted". Anything skipped in
+	// between (today, a role="system" message promoted to req.System above) breaks
+	// the run, so the tool results after it start a new user message rather than
+	// attaching to one that answers an earlier assistant turn.
+	prevEmittedIdx := -1
+
 	for i := 0; i < len(opts.Messages); i++ {
 		msg := opts.Messages[i]
 
@@ -324,7 +333,7 @@ func buildAnthropicRequest(opts RequestOptions) (*anthropicRequest, error) {
 			}
 
 			// consecutive tool results need to be in a single message, so merge them here
-			if len(req.Messages) > 0 {
+			if len(req.Messages) > 0 && prevEmittedIdx == i-1 {
 				lastMsg := &req.Messages[len(req.Messages)-1]
 				if lastMsg.Role == "user" && len(lastMsg.Content) > 0 {
 					if _, ok := lastMsg.Content[0].(anthropicToolResultBlock); ok {
@@ -332,6 +341,7 @@ func buildAnthropicRequest(opts RequestOptions) (*anthropicRequest, error) {
 							toolResult.CacheControl = &anthropicCacheControl{Type: "ephemeral"}
 						}
 						lastMsg.Content = append(lastMsg.Content, toolResult)
+						prevEmittedIdx = i
 						continue
 					}
 				}
@@ -497,6 +507,7 @@ func buildAnthropicRequest(opts RequestOptions) (*anthropicRequest, error) {
 		}
 
 		req.Messages = append(req.Messages, antMsg)
+		prevEmittedIdx = i
 	}
 
 	return req, nil
