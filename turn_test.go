@@ -1,10 +1,30 @@
 package gollama
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 // Truncated must recognize an output-cap cutoff from either the normalized
 // top-level StopReason (Anthropic "max_tokens") or the per-choice FinishReason
 // (OpenAI "length"), and must not fire on a clean finish.
+func TestClientSetTimeout(t *testing.T) {
+	client := NewClient("https://example.invalid")
+	if got, want := client.httpClient.Timeout, 300*time.Second; got != want {
+		t.Fatalf("default timeout = %s, want %s", got, want)
+	}
+
+	client.SetTimeout(12 * time.Minute)
+	if got, want := client.httpClient.Timeout, 12*time.Minute; got != want {
+		t.Fatalf("configured timeout = %s, want %s", got, want)
+	}
+
+	client.SetTimeout(0)
+	if got := client.httpClient.Timeout; got != 0 {
+		t.Fatalf("disabled timeout = %s, want 0", got)
+	}
+}
+
 func TestTruncated(t *testing.T) {
 	cases := []struct {
 		name string
