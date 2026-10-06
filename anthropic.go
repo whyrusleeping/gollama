@@ -46,6 +46,25 @@ type anthropicThinkingReqBlock struct {
 	Data      string `json:"data,omitempty"`
 }
 
+// MarshalJSON emits exactly the fields each block type requires. A "thinking"
+// block must always carry the thinking field, even when empty: with display
+// "omitted" (the default for adaptive thinking on current models) the response
+// returns thinking:"" plus a signature, and Anthropic rejects a replayed block
+// whose thinking field is missing ("thinking.thinking: Field required").
+func (b anthropicThinkingReqBlock) MarshalJSON() ([]byte, error) {
+	if b.Type == "redacted_thinking" {
+		return json.Marshal(struct {
+			Type string `json:"type"`
+			Data string `json:"data"`
+		}{b.Type, b.Data})
+	}
+	return json.Marshal(struct {
+		Type      string `json:"type"`
+		Thinking  string `json:"thinking"`
+		Signature string `json:"signature"`
+	}{b.Type, b.Thinking, b.Signature})
+}
+
 type anthropicSystemBlock struct {
 	Type         string                 `json:"type"`
 	Text         string                 `json:"text"`

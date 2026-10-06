@@ -148,3 +148,36 @@ func TestParseAnthropicResponse_Thinking(t *testing.T) {
 		t.Fatalf("tool calls = %+v", m.ToolCalls)
 	}
 }
+
+// TestBuildAnthropicRequest_ReplaysOmittedThinking verifies that a thinking
+// block with empty text (display "omitted", the adaptive-thinking default) is
+// replayed with an explicit "thinking":"" field. Anthropic rejects the block
+// if the field is absent.
+func TestBuildAnthropicRequest_ReplaysOmittedThinking(t *testing.T) {
+	req, err := buildAnthropicRequest(RequestOptions{
+		Model: "claude-opus-4-8",
+		Messages: []Message{
+			{Role: "user", Content: "add 2 and 3"},
+			{
+				Role:           "assistant",
+				ThinkingBlocks: []ThinkingBlock{{Thinking: "", Signature: "sig-omitted"}},
+				ToolCalls: []ToolCall{{
+					ID:       "tu_1",
+					Type:     "function",
+					Function: ToolCallFunction{Name: "add", Arguments: `{"a":2,"b":3}`},
+				}},
+			},
+			{Role: "tool", ToolCallID: "tu_1", Content: "5"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := json.Marshal(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), `{"type":"thinking","thinking":"","signature":"sig-omitted"}`) {
+		t.Fatalf("omitted-display thinking block not replayed with explicit empty thinking field: %s", b)
+	}
+}
