@@ -13,6 +13,7 @@ const (
 	BackendAnthropic
 	BackendBedrock
 	BackendOllama
+	BackendGemini
 )
 
 func (b Backend) String() string {
@@ -23,6 +24,8 @@ func (b Backend) String() string {
 		return "bedrock"
 	case BackendOllama:
 		return "ollama"
+	case BackendGemini:
+		return "gemini"
 	default:
 		return "openai"
 	}
@@ -43,6 +46,8 @@ func (c *Client) Backend() Backend {
 		return BackendBedrock
 	case c.IsAnthropicAPI():
 		return BackendAnthropic
+	case c.IsGeminiAPI():
+		return BackendGemini
 	case strings.Contains(c.baseURL, ":11434"):
 		return BackendOllama
 	default:
@@ -83,7 +88,8 @@ func (c *Client) TurnCtx(ctx context.Context, opts RequestOptions) (*ResponseMes
 // safe: a consumer can drop intermediate snapshots and simply replace its live
 // tail with the latest one. onDelta may be nil.
 //
-// Backend support: Anthropic streams natively via the Messages SSE API.
+// Backend support: Anthropic streams natively via the Messages SSE API, and
+// Gemini via streamGenerateContent?alt=sse.
 // OpenAI-compatible endpoints and Ollama also stream natively over the
 // /chat/completions chunk stream — Ollama is routed through its
 // OpenAI-compatible /v1 endpoint (the same path Turn uses), so no Ollama-native
@@ -102,6 +108,8 @@ func (c *Client) TurnStreamCtx(ctx context.Context, opts RequestOptions, onDelta
 		return c.chatCompletionAnthropicStream(ctx, opts, onDelta)
 	case BackendBedrock:
 		return c.turnStreamFallbackCtx(ctx, opts, onDelta)
+	case BackendGemini:
+		return c.chatCompletionGeminiStream(ctx, opts, onDelta)
 	default: // BackendOpenAI, BackendOllama
 		return c.chatCompletionOpenAIStream(ctx, opts, onDelta)
 	}

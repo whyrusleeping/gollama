@@ -1,5 +1,7 @@
 // Package gollama provides a Go client for interacting with multiple LLM API providers.
-// It supports Ollama native API, OpenAI-compatible endpoints, and Anthropic Batch API.
+// It supports the Ollama native API, OpenAI-compatible endpoints, the native
+// Anthropic Messages API (including the Batch API), AWS Bedrock, and the native
+// Google Gemini generateContent API (with thought-signature round-tripping).
 package gollama
 
 import (
@@ -13,7 +15,7 @@ import (
 const defaultHTTPTimeout = 300 * time.Second
 
 // Client represents a multi-provider LLM API client.
-// It can interact with Ollama, OpenAI-compatible, Anthropic, and AWS Bedrock endpoints
+// It can interact with Ollama, OpenAI-compatible, Anthropic, AWS Bedrock, and Gemini endpoints
 // depending on the baseURL and methods used.
 type Client struct {
 	baseURL       string
@@ -21,6 +23,7 @@ type Client struct {
 	headers       map[string]string
 	bedrock       *BedrockConfig
 	anthropicMode *bool // nil = auto-detect from URL; non-nil = explicit override
+	geminiMode    *bool // nil = auto-detect from URL; non-nil = explicit override
 	maxRetries    *int  // nil = default (defaultMaxRetries); non-nil = explicit override
 }
 

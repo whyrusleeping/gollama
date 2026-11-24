@@ -9,6 +9,9 @@ import (
 
 // ListModels retrieves the list of available models from the OpenAI-compatible /models endpoint.
 func (c *Client) ListModels() ([]ModelDesc, error) {
+	if c.IsGeminiAPI() {
+		return c.listGeminiModels(context.Background())
+	}
 	resp, err := c.prepareGet("/models")
 	if err != nil {
 		return nil, err
@@ -210,6 +213,10 @@ func (c *Client) ChatCompletionCtx(ctx context.Context, opts RequestOptions) (*R
 	// Use native Anthropic API for caching support
 	if c.IsAnthropicAPI() {
 		return c.ChatCompletionAnthropicCtx(ctx, opts)
+	}
+
+	if c.IsGeminiAPI() {
+		return c.chatCompletionGemini(ctx, opts)
 	}
 
 	body, err := c.buildOpenAIRequest(opts)

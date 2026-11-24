@@ -40,6 +40,10 @@ type RequestOptions struct {
 	//     equivalent (effort is the knob) and is not sent.
 	//   - Ollama: on/off only. Think, or any non-empty Thinking, sets the "think"
 	//     bool; Effort levels are inexpressible and ignored.
+	//   - Gemini: Effort maps to generationConfig.thinkingConfig.thinkingLevel
+	//     ("low".."xhigh" -> LOW..XHIGH; "max" clamps to XHIGH; empty keeps the
+	//     model default). Thought summaries are requested unless
+	//     ThinkingDisplay is "omitted" and are returned in Message.Thinking.
 	//   - Bedrock: not translated (ignored).
 	//
 	// Thinking, set to "adaptive", enables Anthropic extended/adaptive reasoning
@@ -49,15 +53,23 @@ type RequestOptions struct {
 	// Effort controls reasoning depth and overall token spend on backends that
 	// support it: "low" | "medium" | "high" | "xhigh" | "max". Anthropic maps it
 	// to output_config.effort; OpenAI-compatible backends map it to
-	// reasoning_effort ("max" clamps to "xhigh"). Ignored by Ollama (on/off only)
-	// and Bedrock. Empty uses the provider default.
+	// reasoning_effort ("max" clamps to "xhigh"); Gemini maps it to
+	// thinkingConfig.thinkingLevel. Ignored by Ollama (on/off only) and Bedrock. Empty uses the provider default.
 	Effort string `json:"-"`
 	// ThinkingDisplay selects whether thinking summaries are returned
-	// ("summarized") or omitted (the provider default). Anthropic only.
+	// ("summarized") or omitted (the provider default). Used by Anthropic and
+	// Gemini (where summaries are requested unless this is "omitted").
 	ThinkingDisplay string         `json:"-"`
 	Tools           []ToolParam    `json:"tools,omitempty"`
 	ToolChoice      string         `json:"tool_choice,omitempty"`
 	ExtraBody       map[string]any `json:"-"` // Extra top-level fields merged into the request body (OpenAI path only)
+	// OnGenerated is called, possibly many times, when a streamed turn
+	// receives generated output — text, thought summary, or a function call —
+	// as opposed to metadata (usage, signatures, keep-alives). Useful as a
+	// liveness signal during long thinking phases where onDelta stays silent.
+	// Gemini only for now. It must be cheap and safe to call from the stream
+	// goroutine. May be nil.
+	OnGenerated func() `json:"-"`
 }
 
 // Options contains model parameters for controlling generation behavior.
